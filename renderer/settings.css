@@ -1,0 +1,115 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  padding: 24px;
+}
+
+.settings {
+  max-width: 400px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: #f0f0f0;
+}
+
+.field {
+  margin-bottom: 20px;
+}
+
+label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #ccc;
+}
+
+input[type="password"],
+select {
+  width: 100%;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input[type="password"]:focus,
+select:focus {
+  border-color: #4c6ef5;
+}
+
+select {
+  cursor: pointer;
+}
+
+.hint {
+  font-size: 11px;
+  color: #777;
+  margin-top: 4px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  width: 16px;
+  height: 16px;
+  accent-color: #4c6ef5;
+}
+
+.checkbox-label span {
+  font-size: 14px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.save-btn {
+  padding: 8px 24px;
+  background: #3b5bdb;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-family: inherit;
+}
+
+.save-btn:hover {
+  background: #4c6ef5;
+}
+
+.save-btn:active {
+  transform: scale(0.97);
+}
+
+.status {
+  font-size: 13px;
+  color: #37b24d;
+}

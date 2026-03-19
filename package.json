@@ -1,0 +1,16 @@
+{
+  "name": "translator-widget",
+  "version": "1.0.0",
+  "description": "Lightweight popup translator using Claude API — double Cmd+C to translate",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0"
+  }
+}

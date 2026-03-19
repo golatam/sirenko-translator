@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Translator Settings</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="settings">
+    <h1>Translator Settings</h1>
+
+    <div class="field">
+      <label for="apiKey">Claude API Key</label>
+      <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
+      <p class="hint">Your Anthropic API key. Stored locally on your machine.</p>
+    </div>
+
+    <div class="field">
+      <label for="defaultLang">Default Target Language</label>
+      <select id="defaultLang">
+        <option value="en">English</option>
+        <option value="es">Spanish</option>
+        <option value="ru">Russian</option>
+      </select>
+      <p class="hint">Default target language for translations.</p>
+    </div>
+
+    <div class="field">
+      <label class="checkbox-label">
+        <input type="checkbox" id="enabled">
+        <span>Enable clipboard watcher</span>
+      </label>
+      <p class="hint">Double Cmd+C triggers translation popup.</p>
+    </div>
+
+    <div class="actions">
+      <button id="saveBtn" class="save-btn">Save</button>
+      <span id="status" class="status"></span>
+    </div>
+  </div>
+
+  <script src="settings.js"></script>
+</body>
+</html>

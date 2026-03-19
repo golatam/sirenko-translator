@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <div class="header">
+      <div class="lang-controls">
+        <select id="targetLang" class="lang-select">
+          <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="ru">Russian</option>
+        </select>
+      </div>
+      <button id="closeBtn" class="close-btn" title="Close">✕</button>
+    </div>
+
+    <div class="body">
+      <div id="sourcePreview" class="source-preview"></div>
+      <div class="divider"></div>
+      <textarea id="translationArea" class="translation-area" placeholder="Translation will appear here..."></textarea>
+      <button id="translateBtn" class="translate-btn">Translate ▶</button>
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <span>Translating...</span>
+      </div>
+      <div id="errorMsg" class="error hidden"></div>
+    </div>
+
+    <div class="footer">
+      <button id="copyBtn" class="action-btn" title="Copy translation">
+        Copy
+      </button>
+      <button id="replaceBtn" class="action-btn primary" title="Paste into source app">
+        Replace
+      </button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
