@@ -113,3 +113,39 @@ select {
   font-size: 13px;
   color: #37b24d;
 }
+
+/* Mode toggle */
+.mode-toggle {
+  display: flex;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mode-btn {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  color: #999;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.mode-btn:not(:last-child) {
+  border-right: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ccc;
+}
+
+.mode-btn.active {
+  background: #3b5bdb;
+  color: #fff;
+}

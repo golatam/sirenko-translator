@@ -10,6 +10,15 @@
     <h1>Translator Settings</h1>
 
     <div class="field">
+      <label>Translation Engine</label>
+      <div class="mode-toggle">
+        <button type="button" id="modeLocal" class="mode-btn">Local Model</button>
+        <button type="button" id="modeCloud" class="mode-btn">Cloud (Claude)</button>
+      </div>
+      <p class="hint" id="modeHint">OPUS-MT models running locally. First use downloads ~300 MB per language pair.</p>
+    </div>
+
+    <div class="field" id="apiKeyField">
       <label for="apiKey">Claude API Key</label>
       <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
       <p class="hint">Your Anthropic API key. Stored locally on your machine.</p>

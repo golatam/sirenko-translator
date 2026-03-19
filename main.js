@@ -11,6 +11,7 @@ const {
 const path = require("path");
 const Store = require("electron-store");
 const { translate, getKeychainToken, LANGUAGES } = require("./translate");
+const { translateLocal } = require("./translate-local");
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -23,6 +24,7 @@ const store = new Store({
     apiKey: "",
     defaultTargetLang: "en",
     enabled: true,
+    translationMode: "cloud", // "cloud" or "local"
   },
 });
 
@@ -151,10 +153,14 @@ function stopClipboardWatcher() {
 function onDoubleCopy(text) {
   if (!text || !text.trim()) return;
 
-  const apiKey = store.get("apiKey");
-  if (!apiKey && !getKeychainToken()) {
-    openSettings();
-    return;
+  // Local mode doesn't need an API key
+  const mode = store.get("translationMode");
+  if (mode !== "local") {
+    const apiKey = store.get("apiKey");
+    if (!apiKey && !getKeychainToken()) {
+      openSettings();
+      return;
+    }
   }
 
   showPopup(text);
@@ -237,7 +243,7 @@ function openSettings() {
 
   settingsWindow = new BrowserWindow({
     width: 450,
-    height: 350,
+    height: 420,
     title: "Translator Settings",
     resizable: false,
     minimizable: false,
@@ -260,6 +266,17 @@ function openSettings() {
 // ─── IPC Handlers ───────────────────────────────────────────────────────────
 
 ipcMain.handle("translate", async (_event, text, targetLang) => {
+  const mode = store.get("translationMode");
+
+  if (mode === "local") {
+    try {
+      return await translateLocal(text, targetLang);
+    } catch (err) {
+      return { error: err.message || "Local translation failed" };
+    }
+  }
+
+  // Cloud mode (Claude API / CLI)
   const apiKey = store.get("apiKey") || getKeychainToken();
   if (!apiKey) {
     return { error: "API key not set. Please configure in Settings or run: claude auth login" };
@@ -275,12 +292,15 @@ ipcMain.handle("get-settings", () => ({
   apiKey: store.get("apiKey"),
   defaultTargetLang: store.get("defaultTargetLang"),
   enabled: store.get("enabled"),
+  translationMode: store.get("translationMode"),
 }));
 
 ipcMain.handle("save-settings", (_event, settings) => {
   if (settings.apiKey !== undefined) store.set("apiKey", settings.apiKey);
   if (settings.defaultTargetLang !== undefined)
     store.set("defaultTargetLang", settings.defaultTargetLang);
+  if (settings.translationMode !== undefined)
+    store.set("translationMode", settings.translationMode);
   if (settings.enabled !== undefined) {
     store.set("enabled", settings.enabled);
     settings.enabled ? startClipboardWatcher() : stopClipboardWatcher();
@@ -336,7 +356,7 @@ app.whenReady().then(() => {
     startClipboardWatcher();
   }
 
-  if (!store.get("apiKey") && !getKeychainToken()) {
+  if (store.get("translationMode") !== "local" && !store.get("apiKey") && !getKeychainToken()) {
     openSettings();
   }
 });
