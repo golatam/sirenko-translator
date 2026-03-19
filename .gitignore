@@ -1,3 +1,4 @@
 node_modules/
 .DS_Store
 codex-last.txt
+clipboard-watcher
