@@ -8,12 +8,19 @@ const copyBtn = document.getElementById("copyBtn");
 const replaceBtn = document.getElementById("replaceBtn");
 const translateBtn = document.getElementById("translateBtn");
 
+const modeBadge = document.getElementById("modeBadge");
+
 let currentSourceText = "";
 let requestId = 0; // guard against stale translation responses
 
 // Listen for translation requests from main process
 window.api.onTranslationRequest((data) => {
   currentSourceText = data.text;
+
+  // Show mode badge
+  const mode = data.translationMode || "cloud";
+  modeBadge.textContent = mode === "local" ? "LOCAL" : "CLOUD";
+  modeBadge.className = "mode-badge " + mode;
 
   // Auto-detect: Cyrillic → English, otherwise → Russian
   const hasCyrillic = (data.text.match(/[\u0400-\u04FF]/g) || []).length;
@@ -34,6 +41,11 @@ window.api.onTranslationRequest((data) => {
   loading.classList.add("hidden");
   translateBtn.classList.remove("hidden");
   translateBtn.textContent = "Translate ▶";
+
+  // Auto-translate when triggered via global shortcut
+  if (data.autoTranslate) {
+    startTranslation();
+  }
 });
 
 // Manual translate button
@@ -57,11 +69,14 @@ async function startTranslation() {
   loading.classList.remove("hidden");
   errorMsg.classList.add("hidden");
   translationArea.value = "";
+  window.api.setBusy(true);
 
   const result = await window.api.translate(
     currentSourceText,
     targetLangSelect.value || undefined
   );
+
+  window.api.setBusy(false);
 
   // Discard stale response if a newer request was made
   if (id !== requestId) return;
@@ -84,6 +99,7 @@ async function startTranslation() {
 
 // Button actions
 closeBtn.addEventListener("click", () => {
+  window.api.setBusy(false);
   window.api.closePopup();
 });
 
@@ -110,6 +126,7 @@ replaceBtn.addEventListener("click", async () => {
 // Keyboard shortcuts
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    window.api.setBusy(false);
     window.api.closePopup();
   }
   if (e.key === "Enter" && !e.shiftKey && !translationArea.value) {

@@ -8,12 +8,12 @@ const pipelineCache = new Map();
 
 // Direct model mapping for supported language pairs
 const MODEL_MAP = {
-  "ru-en": "Helsinki-NLP/opus-mt-ru-en",
-  "en-ru": "Helsinki-NLP/opus-mt-en-ru",
-  "en-es": "Helsinki-NLP/opus-mt-en-es",
-  "es-en": "Helsinki-NLP/opus-mt-es-en",
-  "ru-es": "Helsinki-NLP/opus-mt-ru-es",
-  "es-ru": "Helsinki-NLP/opus-mt-es-ru",
+  "ru-en": "Xenova/opus-mt-ru-en",
+  "en-ru": "Xenova/opus-mt-en-ru",
+  "en-es": "Xenova/opus-mt-en-es",
+  "es-en": "Xenova/opus-mt-es-en",
+  "ru-es": "Xenova/opus-mt-ru-es",
+  "es-ru": "Xenova/opus-mt-es-ru",
 };
 
 // Loading state to show progress to the user
@@ -98,4 +98,32 @@ async function translateLocal(text, targetLang) {
   };
 }
 
-module.exports = { translateLocal, setProgressCallback };
+/**
+ * Pre-download all models for a given target language.
+ * Downloads both directions: ru↔target, en↔target (skipping identity pairs).
+ */
+async function downloadModels(targetLang, progressCallback) {
+  const pairs = Object.keys(MODEL_MAP).filter(
+    (key) => key.endsWith(`-${targetLang}`) || key.startsWith(`${targetLang}-`)
+  );
+
+  const oldCb = onProgress;
+  onProgress = progressCallback;
+
+  for (let i = 0; i < pairs.length; i++) {
+    const [src, tgt] = pairs[i].split("-");
+    if (progressCallback) {
+      progressCallback({
+        status: "model",
+        current: i + 1,
+        total: pairs.length,
+        pair: pairs[i],
+      });
+    }
+    await getPipeline(src, tgt);
+  }
+
+  onProgress = oldCb;
+}
+
+module.exports = { translateLocal, setProgressCallback, downloadModels, MODEL_MAP };

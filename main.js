@@ -7,11 +7,12 @@ const {
   clipboard,
   screen,
   nativeImage,
+  globalShortcut,
 } = require("electron");
 const path = require("path");
 const Store = require("electron-store");
 const { translate, getKeychainToken, LANGUAGES } = require("./translate");
-const { translateLocal } = require("./translate-local");
+const { translateLocal, downloadModels } = require("./translate-local");
 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
@@ -31,6 +32,7 @@ const store = new Store({
 let tray = null;
 let popupWindow = null;
 let settingsWindow = null;
+let popupBusy = false; // prevent blur-hide while translating
 
 // Clipboard watcher state
 let lastCopyTime = 0;
@@ -189,13 +191,14 @@ function createPopupWindow() {
   popupWindow.loadFile(path.join(__dirname, "renderer", "popup.html"));
 
   popupWindow.on("blur", () => {
+    if (popupBusy) return;
     if (popupWindow && !popupWindow.isDestroyed()) {
       popupWindow.hide();
     }
   });
 }
 
-function showPopup(text) {
+function showPopup(text, targetLangOverride) {
   const cursorPoint = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPoint);
   const { workArea } = display;
@@ -217,8 +220,10 @@ function showPopup(text) {
   const sendRequest = () => {
     popupWindow.webContents.send("translation-request", {
       text,
-      targetLang: store.get("defaultTargetLang"),
+      targetLang: targetLangOverride || store.get("defaultTargetLang"),
       languages: LANGUAGES,
+      translationMode: store.get("translationMode"),
+      autoTranslate: !!targetLangOverride,
     });
   };
 
@@ -243,7 +248,7 @@ function openSettings() {
 
   settingsWindow = new BrowserWindow({
     width: 450,
-    height: 420,
+    height: 480,
     title: "Translator Settings",
     resizable: false,
     minimizable: false,
@@ -308,6 +313,24 @@ ipcMain.handle("save-settings", (_event, settings) => {
   return { success: true };
 });
 
+ipcMain.handle("download-models", async () => {
+  const targetLang = store.get("defaultTargetLang") || "en";
+
+  // Find the sender window (settings)
+  const sender = settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : null;
+
+  try {
+    await downloadModels(targetLang, (data) => {
+      if (sender) {
+        sender.webContents.send("download-progress", data);
+      }
+    });
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle("copy-to-clipboard", (_event, text) => {
   markOwnClipboardWrite();
   clipboard.writeText(text);
@@ -336,11 +359,34 @@ ipcMain.handle("replace-in-app", async (_event, text) => {
   return { success: true };
 });
 
+ipcMain.on("popup-busy", (_event, busy) => {
+  popupBusy = busy;
+});
+
 ipcMain.on("close-popup", () => {
+  popupBusy = false;
   if (popupWindow && !popupWindow.isDestroyed()) {
     popupWindow.hide();
   }
 });
+
+// ─── Global Shortcuts ────────────────────────────────────────────────────────
+
+const SHORTCUTS = {
+  "Ctrl+CommandOrControl+E": "en",
+  "Ctrl+CommandOrControl+R": "ru",
+  "Ctrl+CommandOrControl+S": "es",
+};
+
+function registerGlobalShortcuts() {
+  for (const [accelerator, lang] of Object.entries(SHORTCUTS)) {
+    globalShortcut.register(accelerator, () => {
+      const text = clipboard.readText();
+      if (!text || !text.trim()) return;
+      showPopup(text, lang);
+    });
+  }
+}
 
 // ─── App Lifecycle ──────────────────────────────────────────────────────────
 
@@ -356,12 +402,15 @@ app.whenReady().then(() => {
     startClipboardWatcher();
   }
 
+  registerGlobalShortcuts();
+
   if (store.get("translationMode") !== "local" && !store.get("apiKey") && !getKeychainToken()) {
     openSettings();
   }
 });
 
 app.on("will-quit", () => {
+  globalShortcut.unregisterAll();
   stopClipboardWatcher();
 });
 

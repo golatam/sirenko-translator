@@ -149,3 +149,57 @@ select {
   background: #3b5bdb;
   color: #fff;
 }
+
+/* Model download section */
+.model-section {
+  margin-top: 10px;
+}
+
+.download-btn {
+  padding: 6px 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  color: #ccc;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.download-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.download-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.download-status {
+  font-size: 11px;
+  color: #999;
+  margin-top: 6px;
+  min-height: 16px;
+}
+
+.download-status.done {
+  color: #37b24d;
+}
+
+.progress-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #4c6ef5;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.2s;
+}

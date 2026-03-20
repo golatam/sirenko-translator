@@ -56,6 +56,27 @@ body {
   background: rgba(255, 255, 255, 0.12);
 }
 
+.mode-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  -webkit-app-region: no-drag;
+}
+
+.mode-badge.local {
+  background: rgba(43, 138, 62, 0.3);
+  color: #69db7c;
+  border: 1px solid rgba(43, 138, 62, 0.4);
+}
+
+.mode-badge.cloud {
+  background: rgba(59, 91, 219, 0.3);
+  color: #91a7ff;
+  border: 1px solid rgba(59, 91, 219, 0.4);
+}
+
 .close-btn {
   -webkit-app-region: no-drag;
   background: none;

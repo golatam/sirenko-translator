@@ -16,6 +16,14 @@
         <button type="button" id="modeCloud" class="mode-btn">Cloud (Claude)</button>
       </div>
       <p class="hint" id="modeHint">OPUS-MT models running locally. First use downloads ~300 MB per language pair.</p>
+
+      <div id="modelSection" class="model-section" style="display: none;">
+        <button type="button" id="downloadBtn" class="download-btn">Download Models</button>
+        <div id="downloadStatus" class="download-status"></div>
+        <div id="progressBar" class="progress-bar" style="display: none;">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+      </div>
     </div>
 
     <div class="field" id="apiKeyField">

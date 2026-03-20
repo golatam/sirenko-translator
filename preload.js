@@ -12,7 +12,13 @@ contextBridge.exposeInMainWorld("api", {
   // Popup actions
   copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),
   replaceInApp: (text) => ipcRenderer.invoke("replace-in-app", text),
+  setBusy: (busy) => ipcRenderer.send("popup-busy", busy),
   closePopup: () => ipcRenderer.send("close-popup"),
+
+  // Model management
+  downloadModels: () => ipcRenderer.invoke("download-models"),
+  onDownloadProgress: (callback) =>
+    ipcRenderer.on("download-progress", (_event, data) => callback(data)),
 
   // Events from main process
   onTranslationRequest: (callback) =>
