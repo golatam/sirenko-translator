@@ -13,6 +13,30 @@ const modeBadge = document.getElementById("modeBadge");
 let currentSourceText = "";
 let requestId = 0; // guard against stale translation responses
 
+/**
+ * Detect language in renderer (mirrors lang-detect.js logic).
+ * Returns "ru", "es", or "en".
+ */
+function detectLanguageLocal(text) {
+  const letters = (text.match(/\p{L}/gu) || []);
+  if (letters.length === 0) return "en";
+
+  const cyrillicCount = (text.match(/[\u0400-\u04FF]/g) || []).length;
+  if (cyrillicCount / letters.length > 0.5) return "ru";
+
+  const spanishChars = (text.match(/[ñÑáéíóúüÁÉÍÓÚÜ¿¡]/g) || []).length;
+  if (spanishChars >= 2) return "es";
+
+  const lowerText = text.toLowerCase();
+  const spanishWords =
+    /\b(el|los|las|del|por|para|con|una|uno|como|más|pero|que|esta|fue|hay|puede|todos|así|entre|cuando|muy|sin|sobre|después|tiene|desde|están|donde|antes|esos?|estas?|aunque|cada|hacia|porque|alguna?|entonces|ahora|durante|siempre|además|mejor|hacer|también|nuevo|otro)\b/g;
+  const spanishHits = (lowerText.match(spanishWords) || []).length;
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  if (wordCount >= 3 && spanishHits / wordCount > 0.15) return "es";
+
+  return "en";
+}
+
 // Listen for translation requests from main process
 window.api.onTranslationRequest((data) => {
   currentSourceText = data.text;
@@ -22,11 +46,13 @@ window.api.onTranslationRequest((data) => {
   modeBadge.textContent = mode === "local" ? "LOCAL" : "CLOUD";
   modeBadge.className = "mode-badge " + mode;
 
-  // Auto-detect: Cyrillic → English, otherwise → Russian
-  const hasCyrillic = (data.text.match(/[\u0400-\u04FF]/g) || []).length;
-  const hasLetters = (data.text.match(/\p{L}/gu) || []).length;
-  const isRussian = hasLetters > 0 && hasCyrillic / hasLetters > 0.5;
-  const defaultTarget = data.targetLang || (isRussian ? "en" : "ru");
+  // Auto-detect source and pick target
+  const detectedSrc = detectLanguageLocal(data.text);
+  let defaultTarget = data.targetLang;
+  // If the detected source matches the target, pick an alternative
+  if (detectedSrc === defaultTarget) {
+    defaultTarget = detectedSrc === "ru" ? "en" : "ru";
+  }
 
   targetLangSelect.value = defaultTarget;
 
@@ -42,7 +68,7 @@ window.api.onTranslationRequest((data) => {
   translateBtn.classList.remove("hidden");
   translateBtn.textContent = "Translate ▶";
 
-  // Auto-translate when triggered via global shortcut
+  // Auto-translate: global shortcut or double-copy
   if (data.autoTranslate) {
     startTranslation();
   }
@@ -60,10 +86,24 @@ targetLangSelect.addEventListener("change", () => {
   }
 });
 
+// Handle streaming chunks from cloud translation
+let streamingForId = 0;
+window.api.onTranslationChunk((chunk) => {
+  // Only accept chunks for the current request
+  if (streamingForId !== requestId) return;
+
+  // Hide loading on first chunk — text is arriving
+  if (loading.classList.contains("hidden") === false) {
+    loading.classList.add("hidden");
+  }
+  translationArea.value += chunk;
+});
+
 async function startTranslation() {
   if (!currentSourceText) return;
 
   const id = ++requestId;
+  streamingForId = id;
 
   translateBtn.classList.add("hidden");
   loading.classList.remove("hidden");
@@ -71,29 +111,46 @@ async function startTranslation() {
   translationArea.value = "";
   window.api.setBusy(true);
 
-  const result = await window.api.translate(
-    currentSourceText,
-    targetLangSelect.value || undefined
-  );
+  try {
+    const result = await window.api.translate(
+      currentSourceText,
+      targetLangSelect.value || undefined
+    );
 
-  window.api.setBusy(false);
+    // Only release busy if this is still the current request
+    if (id === requestId) {
+      window.api.setBusy(false);
+    }
 
-  // Discard stale response if a newer request was made
-  if (id !== requestId) return;
+    // Discard stale response if a newer request was made
+    if (id !== requestId) return;
 
-  loading.classList.add("hidden");
+    loading.classList.add("hidden");
 
-  if (result.error) {
-    errorMsg.textContent = result.error;
-    errorMsg.classList.remove("hidden");
-    translateBtn.classList.remove("hidden");
-    return;
-  }
+    if (result.error) {
+      if (result.error === "cancelled") return;
+      errorMsg.textContent = result.error;
+      errorMsg.classList.remove("hidden");
+      translateBtn.classList.remove("hidden");
+      return;
+    }
 
-  translationArea.value = result.translation;
+    // For non-streaming (local mode), set the full result
+    // For streaming (cloud mode), text was already set via chunks —
+    // use the final trimmed result as authoritative
+    translationArea.value = result.translation;
 
-  if (result.targetLang && !targetLangSelect.value) {
-    targetLangSelect.value = result.targetLang;
+    if (result.targetLang && !targetLangSelect.value) {
+      targetLangSelect.value = result.targetLang;
+    }
+  } catch (err) {
+    if (id === requestId) {
+      window.api.setBusy(false);
+      loading.classList.add("hidden");
+      errorMsg.textContent = err.message || "Translation failed";
+      errorMsg.classList.remove("hidden");
+      translateBtn.classList.remove("hidden");
+    }
   }
 }
 
@@ -107,20 +164,30 @@ copyBtn.addEventListener("click", async () => {
   const text = translationArea.value;
   if (!text) return;
 
-  await window.api.copyToClipboard(text);
+  try {
+    await window.api.copyToClipboard(text);
 
-  copyBtn.textContent = "Copied!";
-  copyBtn.classList.add("copied");
-  setTimeout(() => {
-    copyBtn.textContent = "Copy";
-    copyBtn.classList.remove("copied");
-  }, 1500);
+    copyBtn.textContent = "Copied!";
+    copyBtn.classList.add("copied");
+    setTimeout(() => {
+      copyBtn.textContent = "Copy";
+      copyBtn.classList.remove("copied");
+    }, 1500);
+  } catch {
+    errorMsg.textContent = "Failed to copy";
+    errorMsg.classList.remove("hidden");
+  }
 });
 
 replaceBtn.addEventListener("click", async () => {
   const text = translationArea.value;
   if (!text) return;
-  await window.api.replaceInApp(text);
+  try {
+    await window.api.replaceInApp(text);
+  } catch {
+    errorMsg.textContent = "Failed to replace";
+    errorMsg.classList.remove("hidden");
+  }
 });
 
 // Keyboard shortcuts

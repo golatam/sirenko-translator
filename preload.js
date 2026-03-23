@@ -23,4 +23,6 @@ contextBridge.exposeInMainWorld("api", {
   // Events from main process
   onTranslationRequest: (callback) =>
     ipcRenderer.on("translation-request", (_event, data) => callback(data)),
+  onTranslationChunk: (callback) =>
+    ipcRenderer.on("translation-chunk", (_event, chunk) => callback(chunk)),
 });

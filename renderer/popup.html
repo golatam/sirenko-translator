@@ -1,40 +1,41 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="popup">
+  <div class="popup" role="main">
     <div class="header">
       <div class="lang-controls">
-        <select id="targetLang" class="lang-select">
+        <label for="targetLang" class="sr-only">Target language</label>
+        <select id="targetLang" class="lang-select" aria-label="Target language">
           <option value="en">English</option>
           <option value="es">Spanish</option>
           <option value="ru">Russian</option>
         </select>
       </div>
-      <span id="modeBadge" class="mode-badge"></span>
-      <button id="closeBtn" class="close-btn" title="Close">✕</button>
+      <span id="modeBadge" class="mode-badge" aria-label="Translation mode"></span>
+      <button id="closeBtn" class="close-btn" title="Close" aria-label="Close popup">✕</button>
     </div>
 
     <div class="body">
-      <div id="sourcePreview" class="source-preview"></div>
-      <div class="divider"></div>
-      <textarea id="translationArea" class="translation-area" placeholder="Translation will appear here..."></textarea>
+      <div id="sourcePreview" class="source-preview" aria-label="Source text"></div>
+      <div class="divider" role="separator"></div>
+      <textarea id="translationArea" class="translation-area" placeholder="Translation will appear here..." aria-label="Translation result"></textarea>
       <button id="translateBtn" class="translate-btn">Translate ▶</button>
-      <div id="loading" class="loading hidden">
-        <div class="spinner"></div>
+      <div id="loading" class="loading hidden" role="status" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
         <span>Translating...</span>
       </div>
-      <div id="errorMsg" class="error hidden"></div>
+      <div id="errorMsg" class="error hidden" role="alert" aria-live="assertive"></div>
     </div>
 
     <div class="footer">
-      <button id="copyBtn" class="action-btn" title="Copy translation">
+      <button id="copyBtn" class="action-btn" title="Copy translation" aria-label="Copy translation">
         Copy
       </button>
-      <button id="replaceBtn" class="action-btn primary" title="Paste into source app">
+      <button id="replaceBtn" class="action-btn primary" title="Paste into source app" aria-label="Replace in app">
         Replace
       </button>
     </div>

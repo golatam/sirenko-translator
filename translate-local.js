@@ -1,12 +1,16 @@
-// ─── Local Translation via OPUS-MT (Helsinki-NLP) ──────────────────────────
+// ─── Local Translation Manager ──────────────────────────────────────────────
 //
-// Uses @xenova/transformers to run OPUS-MT models locally in ONNX Runtime.
-// Models are downloaded on first use (~300 MB per language pair) and cached.
+// Thin wrapper that delegates all heavy work (ONNX model loading, inference)
+// to a worker thread, keeping Electron's main process responsive.
 
-// Pipeline cache: keyed by "srcLang-tgtLang"
-const pipelineCache = new Map();
+const { Worker } = require("worker_threads");
+const path = require("path");
 
-// Direct model mapping for supported language pairs
+let worker = null;
+let requestId = 0;
+const pending = new Map(); // id → { resolve, reject, onProgress }
+
+// Direct model mapping — exported for settings UI
 const MODEL_MAP = {
   "ru-en": "Xenova/opus-mt-ru-en",
   "en-ru": "Xenova/opus-mt-en-ru",
@@ -16,114 +20,85 @@ const MODEL_MAP = {
   "es-ru": "Xenova/opus-mt-es-ru",
 };
 
-// Loading state to show progress to the user
-let onProgress = null;
+function getWorker() {
+  if (worker) return worker;
 
-function setProgressCallback(cb) {
-  onProgress = cb;
-}
+  worker = new Worker(path.join(__dirname, "translate-local-worker.js"));
 
-/**
- * Get or create a translation pipeline for a language pair.
- */
-async function getPipeline(srcLang, tgtLang) {
-  const key = `${srcLang}-${tgtLang}`;
+  worker.on("message", (msg) => {
+    if (msg.type === "progress") {
+      const p = pending.get(msg.id);
+      if (p && p.onProgress) p.onProgress(msg.data);
+      return;
+    }
 
-  if (pipelineCache.has(key)) {
-    return pipelineCache.get(key);
-  }
+    const p = pending.get(msg.id);
+    if (!p) return;
+    pending.delete(msg.id);
 
-  const modelName = MODEL_MAP[key];
-  if (!modelName) {
-    throw new Error(`No local model available for ${srcLang} → ${tgtLang}`);
-  }
-
-  // Dynamic import since @xenova/transformers may use ESM internals
-  const { pipeline } = await import("@xenova/transformers");
-
-  const progressCallback = onProgress
-    ? (data) => {
-        if (data.status === "download" || data.status === "progress") {
-          onProgress({
-            status: data.status,
-            file: data.file,
-            progress: data.progress,
-            loaded: data.loaded,
-            total: data.total,
-          });
-        }
-      }
-    : undefined;
-
-  const translator = await pipeline("translation", modelName, {
-    progress_callback: progressCallback,
+    if (msg.type === "error") {
+      p.reject(new Error(msg.error));
+    } else {
+      p.resolve(msg.result);
+    }
   });
 
-  pipelineCache.set(key, translator);
-  return translator;
+  worker.on("error", (err) => {
+    // Reject all pending requests
+    for (const [id, p] of pending) {
+      p.reject(err);
+    }
+    pending.clear();
+    worker = null;
+  });
+
+  worker.on("exit", (code) => {
+    if (code !== 0) {
+      for (const [id, p] of pending) {
+        p.reject(new Error(`Worker exited with code ${code}`));
+      }
+      pending.clear();
+    }
+    worker = null;
+  });
+
+  return worker;
 }
 
 /**
- * Detect source language from text (mirrors detectLanguage in translate.js).
- */
-function detectSourceLang(text) {
-  const cyrillicCount = (text.match(/[\u0400-\u04FF]/g) || []).length;
-  const letterCount = (text.match(/\p{L}/gu) || []).length;
-  if (letterCount === 0) return "en";
-  return cyrillicCount / letterCount > 0.5 ? "ru" : "en";
-}
-
-/**
- * Translate text locally using OPUS-MT.
- *
- * @param {string} text - Text to translate
- * @param {string} targetLang - Target language code (en, ru, es)
- * @returns {{ translation: string, detectedSource: string, targetLang: string }}
+ * Translate text locally via worker thread.
  */
 async function translateLocal(text, targetLang) {
-  const srcLang = detectSourceLang(text);
+  const id = ++requestId;
+  const w = getWorker();
 
-  if (srcLang === targetLang) {
-    // Same language — return as-is
-    return { translation: text, detectedSource: srcLang, targetLang };
-  }
-
-  const translator = await getPipeline(srcLang, targetLang);
-  const result = await translator(text, { max_length: 512 });
-
-  return {
-    translation: result[0].translation_text,
-    detectedSource: srcLang,
-    targetLang,
-  };
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject });
+    w.postMessage({ type: "translate", id, text, targetLang });
+  });
 }
 
 /**
- * Pre-download all models for a given target language.
- * Downloads both directions: ru↔target, en↔target (skipping identity pairs).
+ * Pre-download models for a target language via worker thread.
  */
 async function downloadModels(targetLang, progressCallback) {
-  const pairs = Object.keys(MODEL_MAP).filter(
-    (key) => key.endsWith(`-${targetLang}`) || key.startsWith(`${targetLang}-`)
-  );
+  const id = ++requestId;
+  const w = getWorker();
 
-  const oldCb = onProgress;
-  onProgress = progressCallback;
-
-  for (let i = 0; i < pairs.length; i++) {
-    const [src, tgt] = pairs[i].split("-");
-    if (progressCallback) {
-      progressCallback({
-        status: "model",
-        current: i + 1,
-        total: pairs.length,
-        pair: pairs[i],
-      });
-    }
-    await getPipeline(src, tgt);
-  }
-
-  onProgress = oldCb;
+  return new Promise((resolve, reject) => {
+    pending.set(id, { resolve, reject, onProgress: progressCallback });
+    w.postMessage({ type: "download", id, targetLang });
+  });
 }
 
-module.exports = { translateLocal, setProgressCallback, downloadModels, MODEL_MAP };
+/**
+ * Terminate the worker (call on app quit).
+ */
+function terminateWorker() {
+  if (worker) {
+    worker.terminate();
+    worker = null;
+  }
+}
+
+module.exports = { translateLocal, downloadModels, terminateWorker, MODEL_MAP };

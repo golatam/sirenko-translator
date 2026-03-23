@@ -60,7 +60,7 @@ select {
 
 .hint {
   font-size: 11px;
-  color: #777;
+  color: #999;
   margin-top: 4px;
 }
 
@@ -86,27 +86,6 @@ select {
   align-items: center;
   gap: 12px;
   margin-top: 28px;
-}
-
-.save-btn {
-  padding: 8px 24px;
-  background: #3b5bdb;
-  border: none;
-  border-radius: 8px;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s;
-  font-family: inherit;
-}
-
-.save-btn:hover {
-  background: #4c6ef5;
-}
-
-.save-btn:active {
-  transform: scale(0.97);
 }
 
 .status {
@@ -202,4 +181,12 @@ select {
   border-radius: 2px;
   width: 0%;
   transition: width 0.2s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-btn,
+  .download-btn,
+  input[type="password"],
+  select,
+  .progress-fill { transition: none; }
 }

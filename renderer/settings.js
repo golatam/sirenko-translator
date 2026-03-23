@@ -2,7 +2,6 @@ const apiKeyInput = document.getElementById("apiKey");
 const apiKeyField = document.getElementById("apiKeyField");
 const defaultLangSelect = document.getElementById("defaultLang");
 const enabledCheckbox = document.getElementById("enabled");
-const saveBtn = document.getElementById("saveBtn");
 const statusEl = document.getElementById("status");
 const modeLocalBtn = document.getElementById("modeLocal");
 const modeCloudBtn = document.getElementById("modeCloud");
@@ -15,6 +14,12 @@ const progressBar = document.getElementById("progressBar");
 const progressFill = document.getElementById("progressFill");
 
 let currentMode = "cloud";
+
+function showSaved() {
+  statusEl.textContent = "Saved!";
+  clearTimeout(showSaved._timer);
+  showSaved._timer = setTimeout(() => { statusEl.textContent = ""; }, 1500);
+}
 
 function setMode(mode) {
   currentMode = mode;
@@ -33,47 +38,55 @@ function setMode(mode) {
       : "Uses Claude Haiku via Anthropic API or CLI.";
 }
 
-modeLocalBtn.addEventListener("click", () => {
+modeLocalBtn.addEventListener("click", async () => {
   setMode("local");
-  window.api.saveSettings({ translationMode: "local" });
+  await window.api.saveSettings({ translationMode: "local" });
+  showSaved();
 });
-modeCloudBtn.addEventListener("click", () => {
+modeCloudBtn.addEventListener("click", async () => {
   setMode("cloud");
-  window.api.saveSettings({ translationMode: "cloud" });
+  await window.api.saveSettings({ translationMode: "cloud" });
+  showSaved();
 });
 
 // Load current settings
 async function loadSettings() {
-  const settings = await window.api.getSettings();
-  apiKeyInput.value = settings.apiKey || "";
-  defaultLangSelect.value = settings.defaultTargetLang || "";
-  enabledCheckbox.checked = settings.enabled !== false;
-  setMode(settings.translationMode || "cloud");
+  try {
+    const settings = await window.api.getSettings();
+    apiKeyInput.value = settings.apiKey || "";
+    defaultLangSelect.value = settings.defaultTargetLang || "";
+    enabledCheckbox.checked = settings.enabled !== false;
+    setMode(settings.translationMode || "cloud");
+  } catch {
+    statusEl.textContent = "Failed to load settings";
+  }
 }
 
 loadSettings();
 
-// Save settings
-saveBtn.addEventListener("click", async () => {
-  const settings = {
-    apiKey: apiKeyInput.value.trim(),
-    defaultTargetLang: defaultLangSelect.value,
-    enabled: enabledCheckbox.checked,
-    translationMode: currentMode,
-  };
-
-  await window.api.saveSettings(settings);
-
-  statusEl.textContent = "Saved!";
-  setTimeout(() => {
-    statusEl.textContent = "";
-  }, 2000);
+// Instant-save: all fields save on change
+defaultLangSelect.addEventListener("change", async () => {
+  await window.api.saveSettings({ defaultTargetLang: defaultLangSelect.value });
+  showSaved();
 });
 
-// Save on Enter in API key field
+enabledCheckbox.addEventListener("change", async () => {
+  await window.api.saveSettings({ enabled: enabledCheckbox.checked });
+  showSaved();
+});
+
+// API key saves on blur (not every keystroke) or Enter
+async function saveApiKey() {
+  const key = apiKeyInput.value.trim();
+  await window.api.saveSettings({ apiKey: key });
+  showSaved();
+}
+
+apiKeyInput.addEventListener("blur", saveApiKey);
 apiKeyInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") {
-    saveBtn.click();
+    e.preventDefault();
+    saveApiKey();
   }
 });
 
@@ -87,18 +100,25 @@ downloadBtn.addEventListener("click", async () => {
   progressBar.style.display = "";
   progressFill.style.width = "0%";
 
-  const result = await window.api.downloadModels();
+  try {
+    const result = await window.api.downloadModels();
 
-  if (result.error) {
-    downloadStatus.textContent = "Error: " + result.error;
+    if (result.error) {
+      downloadStatus.textContent = "Error: " + result.error;
+      downloadBtn.disabled = false;
+      downloadBtn.textContent = "Retry Download";
+      progressBar.style.display = "none";
+    } else {
+      downloadStatus.textContent = "All models ready!";
+      downloadStatus.className = "download-status done";
+      progressFill.style.width = "100%";
+      downloadBtn.textContent = "Downloaded";
+    }
+  } catch {
+    downloadStatus.textContent = "Download failed";
     downloadBtn.disabled = false;
     downloadBtn.textContent = "Retry Download";
     progressBar.style.display = "none";
-  } else {
-    downloadStatus.textContent = "All models ready!";
-    downloadStatus.className = "download-status done";
-    progressFill.style.width = "100%";
-    downloadBtn.textContent = "Downloaded";
   }
 });
 

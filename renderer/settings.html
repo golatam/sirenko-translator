@@ -1,26 +1,26 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Translator Settings</title>
   <link rel="stylesheet" href="settings.css">
 </head>
 <body>
-  <div class="settings">
+  <div class="settings" role="main">
     <h1>Translator Settings</h1>
 
     <div class="field">
-      <label>Translation Engine</label>
-      <div class="mode-toggle">
-        <button type="button" id="modeLocal" class="mode-btn">Local Model</button>
-        <button type="button" id="modeCloud" class="mode-btn">Cloud (Claude)</button>
+      <label id="engineLabel">Translation Engine</label>
+      <div class="mode-toggle" role="radiogroup" aria-labelledby="engineLabel">
+        <button type="button" id="modeLocal" class="mode-btn" role="radio" aria-checked="false">Local Model</button>
+        <button type="button" id="modeCloud" class="mode-btn" role="radio" aria-checked="false">Cloud (Claude)</button>
       </div>
-      <p class="hint" id="modeHint">OPUS-MT models running locally. First use downloads ~300 MB per language pair.</p>
+      <p class="hint" id="modeHint" aria-live="polite">OPUS-MT models running locally. First use downloads ~300 MB per language pair.</p>
 
       <div id="modelSection" class="model-section" style="display: none;">
         <button type="button" id="downloadBtn" class="download-btn">Download Models</button>
-        <div id="downloadStatus" class="download-status"></div>
-        <div id="progressBar" class="progress-bar" style="display: none;">
+        <div id="downloadStatus" class="download-status" aria-live="polite"></div>
+        <div id="progressBar" class="progress-bar" style="display: none;" role="progressbar" aria-valuemin="0" aria-valuemax="100">
           <div id="progressFill" class="progress-fill"></div>
         </div>
       </div>
@@ -51,8 +51,7 @@
     </div>
 
     <div class="actions">
-      <button id="saveBtn" class="save-btn">Save</button>
-      <span id="status" class="status"></span>
+      <span id="status" class="status" aria-live="polite"></span>
     </div>
   </div>
 

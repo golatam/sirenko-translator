@@ -1,150 +1,249 @@
-const { execSync, spawn } = require("child_process");
-const os = require("os");
-const fs = require("fs");
+const { execFile } = require("child_process");
+const https = require("https");
+const { detectLanguage, autoTargetLang, LANGUAGES } = require("./lang-detect");
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
+const KEYCHAIN_SERVICE = "Claude Code-credentials";
+const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5 min before expiry
 
 // ─── Cached state ───────────────────────────────────────────────────────────
 
-let cachedKeychainToken = undefined; // undefined = not checked yet
-let cachedClaudePath = undefined;
+let cachedOauth = undefined; // full { accessToken, refreshToken, expiresAt, ... }
+let cachedClient = null;
+let cachedClientKey = null;
+let refreshInProgress = null; // dedup concurrent refreshes
 
 /**
- * Check if Claude CLI auth exists in macOS Keychain (cached).
+ * Read raw credentials JSON from macOS Keychain.
  */
-function getKeychainToken() {
-  if (cachedKeychainToken !== undefined) return cachedKeychainToken;
-  try {
-    const raw = execSync(
-      'security find-generic-password -s "Claude Code-credentials" -w',
-      { encoding: "utf-8", timeout: 5000 }
-    ).trim();
-    const parsed = JSON.parse(raw);
-    cachedKeychainToken = parsed?.claudeAiOauth?.accessToken ? "oauth" : null;
-  } catch {
-    cachedKeychainToken = null;
+async function readKeychainCredentials() {
+  const raw = await new Promise((resolve, reject) => {
+    execFile(
+      "security",
+      ["find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"],
+      { encoding: "utf-8", timeout: 5000 },
+      (err, stdout) => (err ? reject(err) : resolve(stdout.trim()))
+    );
+  });
+  return JSON.parse(raw);
+}
+
+/**
+ * Write updated credentials back to macOS Keychain.
+ */
+async function writeKeychainCredentials(credentials) {
+  const json = JSON.stringify(credentials);
+  // Delete old entry, then add new one
+  await new Promise((resolve) => {
+    execFile(
+      "security",
+      ["delete-generic-password", "-s", KEYCHAIN_SERVICE],
+      { timeout: 5000 },
+      () => resolve() // ignore errors (entry may not exist)
+    );
+  });
+  await new Promise((resolve, reject) => {
+    execFile(
+      "security",
+      ["add-generic-password", "-s", KEYCHAIN_SERVICE, "-U", "-w", json],
+      { timeout: 5000 },
+      (err) => (err ? reject(err) : resolve())
+    );
+  });
+}
+
+/**
+ * Refresh an expired OAuth access token using the refresh token.
+ * Returns the new OAuth object or throws on failure.
+ */
+async function refreshOAuthToken(refreshToken) {
+  const body = JSON.stringify({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: OAUTH_CLIENT_ID,
+  });
+
+  return new Promise((resolve, reject) => {
+    const url = new URL(OAUTH_TOKEN_URL);
+    const req = https.request(
+      {
+        hostname: url.hostname,
+        path: url.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            return reject(new Error(`OAuth refresh failed (${res.statusCode}): ${data}`));
+          }
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(new Error("Failed to parse OAuth refresh response"));
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Perform the actual token refresh: call OAuth endpoint, update cache and Keychain.
+ */
+async function doRefresh() {
+  if (!refreshInProgress) {
+    refreshInProgress = (async () => {
+      try {
+        const resp = await refreshOAuthToken(cachedOauth.refreshToken);
+        cachedOauth = {
+          ...cachedOauth,
+          accessToken: resp.access_token,
+          refreshToken: resp.refresh_token || cachedOauth.refreshToken,
+          expiresAt: resp.expires_in
+            ? Date.now() + resp.expires_in * 1000
+            : resp.expires_at || cachedOauth.expiresAt,
+        };
+        // Persist to Keychain
+        try {
+          const creds = await readKeychainCredentials();
+          creds.claudeAiOauth = cachedOauth;
+          await writeKeychainCredentials(creds);
+        } catch { /* non-fatal: token works even if Keychain write fails */ }
+        // Invalidate cached SDK client (token changed)
+        cachedClient = null;
+        cachedClientKey = null;
+      } finally {
+        refreshInProgress = null;
+      }
+    })();
   }
-  return cachedKeychainToken;
+  await refreshInProgress;
 }
 
 /**
- * Resolve claude CLI path (cached).
+ * Load OAuth credentials from Keychain, refresh if expired,
+ * and return the valid access token string or null.
  */
-function getClaudePath() {
-  if (cachedClaudePath !== undefined) return cachedClaudePath;
-  const home = os.homedir();
-  const candidates = [
-    `${home}/.local/bin/claude`,
-    "/usr/local/bin/claude",
-    "/opt/homebrew/bin/claude",
-  ];
-  cachedClaudePath = candidates.find((p) => fs.existsSync(p)) || "claude";
-  return cachedClaudePath;
-}
+async function getKeychainToken() {
+  // First load from Keychain if we haven't yet
+  if (cachedOauth === undefined) {
+    try {
+      const creds = await readKeychainCredentials();
+      cachedOauth = creds?.claudeAiOauth || null;
+    } catch {
+      cachedOauth = null;
+    }
+  }
+  if (!cachedOauth?.accessToken) return null;
 
-// ─── Shared language config ─────────────────────────────────────────────────
+  // Check if token needs refresh
+  const now = Date.now();
+  if (cachedOauth.expiresAt && now >= cachedOauth.expiresAt - TOKEN_EXPIRY_BUFFER_MS) {
+    if (!cachedOauth.refreshToken) return null;
+    await doRefresh();
+  }
 
-const LANGUAGES = {
-  en: "English",
-  es: "Spanish",
-  ru: "Russian",
-};
-
-/**
- * Detect if text contains Cyrillic characters (Russian).
- */
-function detectLanguage(text) {
-  const cyrillicCount = (text.match(/[\u0400-\u04FF]/g) || []).length;
-  const letterCount = (text.match(/\p{L}/gu) || []).length;
-  if (letterCount === 0) return "other";
-  return cyrillicCount / letterCount > 0.5 ? "ru" : "other";
+  return cachedOauth.accessToken;
 }
 
 /**
- * Auto-select target language based on source text.
+ * Force-refresh the OAuth token (e.g. after a 401 error).
+ * Returns new access token or null.
  */
-function autoTargetLang(text) {
-  return detectLanguage(text) === "ru" ? "en" : "ru";
+async function forceRefreshKeychainToken() {
+  if (!cachedOauth?.refreshToken) return null;
+  await doRefresh();
+  return cachedOauth?.accessToken || null;
 }
 
 /**
- * Translate text using Claude API or CLI.
+ * Get or create a reusable Anthropic SDK client.
+ * Both API keys and OAuth tokens are sent via x-api-key header.
  */
-async function translate(text, apiKey, targetLang) {
+function getClient(key) {
+  if (cachedClient && cachedClientKey === key) return cachedClient;
+  const Anthropic = require("@anthropic-ai/sdk");
+  cachedClient = new Anthropic({ apiKey: key });
+  cachedClientKey = key;
+  return cachedClient;
+}
+
+/**
+ * Translate text via Anthropic SDK with streaming.
+ * Works with both API keys (sk-ant-api...) and OAuth tokens (sk-ant-oat...).
+ *
+ * @param {string} text
+ * @param {string} apiKey - API key or OAuth token
+ * @param {string} [targetLang]
+ * @param {AbortSignal} [signal]
+ * @param {(chunk: string) => void} [onChunk] - Called with each text chunk
+ */
+async function translate(text, apiKey, targetLang, signal, onChunk) {
   if (!targetLang) {
     targetLang = autoTargetLang(text);
   }
 
-  const target = LANGUAGES[targetLang] || "English";
+  if (signal?.aborted) throw new Error("Translation cancelled");
 
-  // Direct SDK path for regular API keys
-  if (apiKey && apiKey.startsWith("sk-ant-api")) {
-    const Anthropic = require("@anthropic-ai/sdk");
-    const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
+  const target = LANGUAGES[targetLang] || "English";
+  const systemPrompt =
+    "You are a translator. Translate the given text to " +
+    target +
+    ". Output ONLY the translation, nothing else. Preserve formatting.";
+
+  const isOAuth = apiKey.startsWith("sk-ant-oat");
+  let retried = false;
+
+  const doTranslate = async (key) => {
+    const client = getClient(key);
+    const msgParams = {
       model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
-      system:
-        "You are a translator. Translate the given text to " +
-        target +
-        ". Output ONLY the translation, nothing else. Preserve formatting.",
+      system: systemPrompt,
       messages: [{ role: "user", content: text }],
-    });
-    return {
-      translation: message.content[0].text,
-      detectedSource: detectLanguage(text) === "ru" ? "ru" : "auto",
-      targetLang,
     };
-  }
+    const reqOpts = signal ? { signal } : undefined;
 
-  // Claude CLI path (async spawn, works with OAuth subscription)
-  const prompt = `Translate to ${target}:\n\n${text}`;
-  const translation = await spawnClaude(prompt);
-
-  return {
-    translation,
-    detectedSource: detectLanguage(text) === "ru" ? "ru" : "auto",
-    targetLang,
-  };
-}
-
-/**
- * Run claude CLI asynchronously via spawn (non-blocking).
- */
-function spawnClaude(prompt) {
-  return new Promise((resolve, reject) => {
-    const args = [
-      "-p",
-      "--model", "claude-haiku-4-5-20251001",
-      "--append-system-prompt",
-      "You are a translator. Output ONLY the translation, nothing else. Preserve formatting.",
-      prompt,
-    ];
-
-    const claudePath = getClaudePath();
-
-    const proc = spawn(claudePath, args, {
-      timeout: 30000,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    proc.stdin.end();
-
-    let stdout = "";
-    let stderr = "";
-
-    proc.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
-    proc.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
-
-    proc.on("close", (code) => {
-      if (code === 0 && stdout.trim()) {
-        resolve(stdout.trim());
-      } else {
-        reject(new Error(stderr.trim() || `claude exited with code ${code}`));
+    if (onChunk) {
+      const stream = client.messages.stream(msgParams, reqOpts);
+      let fullText = "";
+      for await (const event of stream) {
+        if (signal?.aborted) throw new Error("Translation cancelled");
+        if (event.type === "content_block_delta" && event.delta?.text) {
+          fullText += event.delta.text;
+          onChunk(event.delta.text);
+        }
       }
-    });
+      return { translation: fullText, detectedSource: detectLanguage(text), targetLang };
+    }
 
-    proc.on("error", (err) => {
-      reject(new Error(`Failed to start claude CLI: ${err.message}`));
-    });
-  });
+    const message = await client.messages.create(msgParams, reqOpts);
+    return { translation: message.content[0].text, detectedSource: detectLanguage(text), targetLang };
+  };
+
+  try {
+    return await doTranslate(apiKey);
+  } catch (err) {
+    // On 401 with OAuth token, try refreshing once
+    if (!retried && isOAuth && err?.status === 401) {
+      retried = true;
+      const newToken = await forceRefreshKeychainToken();
+      if (newToken) return doTranslate(newToken);
+    }
+    throw err;
+  }
 }
 
-module.exports = { translate, detectLanguage, autoTargetLang, getKeychainToken, LANGUAGES };
+module.exports = { translate, detectLanguage, autoTargetLang, getKeychainToken, forceRefreshKeychainToken, LANGUAGES };

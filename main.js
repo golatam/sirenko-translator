@@ -10,34 +10,44 @@ const {
   globalShortcut,
 } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const Store = require("electron-store");
-const { translate, getKeychainToken, LANGUAGES } = require("./translate");
-const { translateLocal, downloadModels } = require("./translate-local");
+const { translate, getKeychainToken } = require("./translate");
+const { translateLocal, downloadModels, terminateWorker } = require("./translate-local");
+const { LANGUAGES } = require("./lang-detect");
 
-// Prevent multiple instances
+// ─── Single Instance Lock ───────────────────────────────────────────────────
+
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 }
+
+// ─── Store ──────────────────────────────────────────────────────────────────
 
 const store = new Store({
   defaults: {
     apiKey: "",
     defaultTargetLang: "en",
     enabled: true,
-    translationMode: "cloud", // "cloud" or "local"
+    translationMode: "cloud",
   },
 });
+
+// ─── App State ──────────────────────────────────────────────────────────────
 
 let tray = null;
 let popupWindow = null;
 let settingsWindow = null;
-let popupBusy = false; // prevent blur-hide while translating
+let popupBusy = false;
 
-// Clipboard watcher state
+// Clipboard watcher
 let lastCopyTime = 0;
 let clipboardWatcherProcess = null;
-let ignoreClipboardUntil = 0; // suppress own clipboard writes
+let ignoreClipboardUntil = 0;
+
+// Translation cancellation
+let currentTranslationController = null;
 
 // ─── Tray Icon ──────────────────────────────────────────────────────────────
 
@@ -101,40 +111,69 @@ function createTray() {
   tray.setContextMenu(contextMenu);
 }
 
-// ─── Clipboard Watcher ──────────────────────────────────────────────────────
+// ─── Clipboard Watcher (with JS fallback) ───────────────────────────────────
 
 function markOwnClipboardWrite() {
   ignoreClipboardUntil = Date.now() + 500;
+}
+
+function handleClipboardData(data) {
+  if (Date.now() < ignoreClipboardUntil) return;
+
+  const lines = data.toString().trim().split("\n");
+  for (const line of lines) {
+    if (line === "copy") {
+      const now = Date.now();
+      const timeSinceLastCopy = now - lastCopyTime;
+      lastCopyTime = now;
+
+      if (timeSinceLastCopy < 1000 && timeSinceLastCopy > 50) {
+        onDoubleCopy(clipboard.readText());
+      }
+    }
+  }
 }
 
 function startClipboardWatcher() {
   if (clipboardWatcherProcess) return;
 
   const { spawn } = require("child_process");
+
+  // Try native binary first, fall back to JS watcher
   const watcherBin = path.join(__dirname, "clipboard-watcher");
-  clipboardWatcherProcess = spawn(watcherBin);
+  const useNative = fs.existsSync(watcherBin);
 
-  clipboardWatcherProcess.stdout.on("data", (data) => {
-    // Ignore own clipboard writes
-    if (Date.now() < ignoreClipboardUntil) return;
+  if (useNative) {
+    clipboardWatcherProcess = spawn(watcherBin);
+  } else {
+    // JS fallback: run clipboard-watcher.js as a child process
+    clipboardWatcherProcess = spawn(process.execPath, [
+      path.join(__dirname, "clipboard-watcher.js"),
+    ]);
+    console.log("[watcher] native binary not found, using JS fallback");
+  }
 
-    const lines = data.toString().trim().split("\n");
-    for (const line of lines) {
-      if (line === "copy") {
-        const now = Date.now();
-        const timeSinceLastCopy = now - lastCopyTime;
-        lastCopyTime = now;
-
-        if (timeSinceLastCopy < 1000 && timeSinceLastCopy > 50) {
-          onDoubleCopy(clipboard.readText());
-        }
-      }
-    }
-  });
+  clipboardWatcherProcess.stdout.on("data", handleClipboardData);
 
   clipboardWatcherProcess.on("error", (err) => {
     console.error("[watcher] failed to start:", err.message);
     clipboardWatcherProcess = null;
+
+    // If native binary failed, try JS fallback
+    if (useNative) {
+      console.log("[watcher] retrying with JS fallback");
+      clipboardWatcherProcess = spawn(process.execPath, [
+        path.join(__dirname, "clipboard-watcher.js"),
+      ]);
+      clipboardWatcherProcess.stdout.on("data", handleClipboardData);
+      clipboardWatcherProcess.on("error", (err2) => {
+        console.error("[watcher] JS fallback also failed:", err2.message);
+        clipboardWatcherProcess = null;
+      });
+      clipboardWatcherProcess.on("exit", () => {
+        clipboardWatcherProcess = null;
+      });
+    }
   });
 
   clipboardWatcherProcess.on("exit", (code) => {
@@ -152,20 +191,19 @@ function stopClipboardWatcher() {
   }
 }
 
-function onDoubleCopy(text) {
+async function onDoubleCopy(text) {
   if (!text || !text.trim()) return;
 
-  // Local mode doesn't need an API key
   const mode = store.get("translationMode");
   if (mode !== "local") {
     const apiKey = store.get("apiKey");
-    if (!apiKey && !getKeychainToken()) {
+    if (!apiKey && !(await getKeychainToken())) {
       openSettings();
       return;
     }
   }
 
-  showPopup(text);
+  showPopup(text, null, true);
 }
 
 // ─── Popup Window ───────────────────────────────────────────────────────────
@@ -198,7 +236,7 @@ function createPopupWindow() {
   });
 }
 
-function showPopup(text, targetLangOverride) {
+function showPopup(text, targetLangOverride, autoTranslate) {
   const cursorPoint = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPoint);
   const { workArea } = display;
@@ -223,7 +261,7 @@ function showPopup(text, targetLangOverride) {
       targetLang: targetLangOverride || store.get("defaultTargetLang"),
       languages: LANGUAGES,
       translationMode: store.get("translationMode"),
-      autoTranslate: !!targetLangOverride,
+      autoTranslate: !!targetLangOverride || !!autoTranslate,
     });
   };
 
@@ -268,9 +306,15 @@ function openSettings() {
   });
 }
 
-// ─── IPC Handlers ───────────────────────────────────────────────────────────
+// ─── IPC: Translation (with cancellation + streaming) ───────────────────────
 
 ipcMain.handle("translate", async (_event, text, targetLang) => {
+  // Cancel any in-flight cloud translation
+  if (currentTranslationController) {
+    currentTranslationController.abort();
+    currentTranslationController = null;
+  }
+
   const mode = store.get("translationMode");
 
   if (mode === "local") {
@@ -281,17 +325,37 @@ ipcMain.handle("translate", async (_event, text, targetLang) => {
     }
   }
 
-  // Cloud mode (Claude API / CLI)
-  const apiKey = store.get("apiKey") || getKeychainToken();
+  // Cloud mode — create AbortController for cancellation
+  const controller = new AbortController();
+  currentTranslationController = controller;
+
+  const apiKey = store.get("apiKey") || (await getKeychainToken());
   if (!apiKey) {
+    currentTranslationController = null;
     return { error: "API key not set. Please configure in Settings or run: claude auth login" };
   }
+
+  // Stream chunks to popup as they arrive
+  const sendChunk = (chunk) => {
+    if (popupWindow && !popupWindow.isDestroyed()) {
+      popupWindow.webContents.send("translation-chunk", chunk);
+    }
+  };
+
   try {
-    return await translate(text, apiKey, targetLang);
+    const result = await translate(text, apiKey, targetLang, controller.signal, sendChunk);
+    currentTranslationController = null;
+    return result;
   } catch (err) {
+    currentTranslationController = null;
+    if (controller.signal.aborted) {
+      return { error: "cancelled" };
+    }
     return { error: err.message || "Translation failed" };
   }
 });
+
+// ─── IPC: Settings ──────────────────────────────────────────────────────────
 
 ipcMain.handle("get-settings", () => ({
   apiKey: store.get("apiKey"),
@@ -313,10 +377,10 @@ ipcMain.handle("save-settings", (_event, settings) => {
   return { success: true };
 });
 
+// ─── IPC: Model Download ────────────────────────────────────────────────────
+
 ipcMain.handle("download-models", async () => {
   const targetLang = store.get("defaultTargetLang") || "en";
-
-  // Find the sender window (settings)
   const sender = settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : null;
 
   try {
@@ -330,6 +394,8 @@ ipcMain.handle("download-models", async () => {
     return { error: err.message };
   }
 });
+
+// ─── IPC: Clipboard & Popup ─────────────────────────────────────────────────
 
 ipcMain.handle("copy-to-clipboard", (_event, text) => {
   markOwnClipboardWrite();
@@ -345,7 +411,6 @@ ipcMain.handle("replace-in-app", async (_event, text) => {
     popupWindow.hide();
   }
 
-  // Wait for previous app to regain focus, then simulate Cmd+V
   await new Promise((r) => setTimeout(r, 300));
 
   const { execFile } = require("child_process");
@@ -370,7 +435,7 @@ ipcMain.on("close-popup", () => {
   }
 });
 
-// ─── Global Shortcuts ────────────────────────────────────────────────────────
+// ─── Global Shortcuts ───────────────────────────────────────────────────────
 
 const SHORTCUTS = {
   "Ctrl+CommandOrControl+E": "en",
@@ -392,10 +457,8 @@ function registerGlobalShortcuts() {
 
 app.dock?.hide();
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createTray();
-
-  // Pre-create popup window for instant response
   createPopupWindow();
 
   if (store.get("enabled")) {
@@ -404,14 +467,21 @@ app.whenReady().then(() => {
 
   registerGlobalShortcuts();
 
-  if (store.get("translationMode") !== "local" && !store.get("apiKey") && !getKeychainToken()) {
+  if (store.get("translationMode") !== "local" && !store.get("apiKey") && !(await getKeychainToken())) {
     openSettings();
+  }
+
+  // Pre-warm: load default model pair in local mode (background, non-blocking)
+  if (store.get("translationMode") === "local") {
+    const targetLang = store.get("defaultTargetLang") || "en";
+    translateLocal("warmup", targetLang).catch(() => {});
   }
 });
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
   stopClipboardWatcher();
+  terminateWorker();
 });
 
 app.on("window-all-closed", (e) => {
