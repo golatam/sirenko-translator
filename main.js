@@ -44,6 +44,8 @@ let popupBusy = false;
 // Clipboard watcher
 let lastCopyTime = 0;
 let clipboardWatcherProcess = null;
+let clipboardPollTimer = null;
+let lastChangeCount = -1;
 let ignoreClipboardUntil = 0;
 
 // Translation cancellation
@@ -134,60 +136,45 @@ function handleClipboardData(data) {
   }
 }
 
-function startClipboardWatcher() {
-  if (clipboardWatcherProcess) return;
-
-  const { spawn } = require("child_process");
-
-  // Try native binary first, fall back to JS watcher
-  const watcherBin = path.join(__dirname, "clipboard-watcher");
-  const useNative = fs.existsSync(watcherBin);
-
-  if (useNative) {
-    clipboardWatcherProcess = spawn(watcherBin);
-  } else {
-    // JS fallback: run clipboard-watcher.js as a child process
-    clipboardWatcherProcess = spawn(process.execPath, [
-      path.join(__dirname, "clipboard-watcher.js"),
-    ]);
-    console.log("[watcher] native binary not found, using JS fallback");
+function getChangeCount() {
+  try {
+    const { execFileSync } = require("child_process");
+    const out = execFileSync(
+      "osascript",
+      [
+        "-l",
+        "JavaScript",
+        "-e",
+        'ObjC.import("AppKit"); $.NSPasteboard.generalPasteboard.changeCount',
+      ],
+      { encoding: "utf-8", timeout: 2000 }
+    );
+    return parseInt(out.trim(), 10);
+  } catch {
+    return -1;
   }
+}
 
-  clipboardWatcherProcess.stdout.on("data", handleClipboardData);
+function startClipboardWatcher() {
+  if (clipboardPollTimer) return;
 
-  clipboardWatcherProcess.on("error", (err) => {
-    console.error("[watcher] failed to start:", err.message);
-    clipboardWatcherProcess = null;
-
-    // If native binary failed, try JS fallback
-    if (useNative) {
-      console.log("[watcher] retrying with JS fallback");
-      clipboardWatcherProcess = spawn(process.execPath, [
-        path.join(__dirname, "clipboard-watcher.js"),
-      ]);
-      clipboardWatcherProcess.stdout.on("data", handleClipboardData);
-      clipboardWatcherProcess.on("error", (err2) => {
-        console.error("[watcher] JS fallback also failed:", err2.message);
-        clipboardWatcherProcess = null;
-      });
-      clipboardWatcherProcess.on("exit", () => {
-        clipboardWatcherProcess = null;
-      });
+  // Poll NSPasteboard changeCount directly from main process.
+  // Each Cmd+C bumps changeCount even if text is identical — that's how
+  // we detect a "double copy" when the user presses Cmd+C twice in a row.
+  lastChangeCount = getChangeCount();
+  clipboardPollTimer = setInterval(() => {
+    const count = getChangeCount();
+    if (count !== -1 && count !== lastChangeCount) {
+      lastChangeCount = count;
+      handleClipboardData("copy\n");
     }
-  });
-
-  clipboardWatcherProcess.on("exit", (code) => {
-    if (code !== null && code !== 0) {
-      console.error("[watcher] exited with code", code);
-    }
-    clipboardWatcherProcess = null;
-  });
+  }, 300);
 }
 
 function stopClipboardWatcher() {
-  if (clipboardWatcherProcess) {
-    clipboardWatcherProcess.kill();
-    clipboardWatcherProcess = null;
+  if (clipboardPollTimer) {
+    clearInterval(clipboardPollTimer);
+    clipboardPollTimer = null;
   }
 }
 
@@ -445,11 +432,14 @@ const SHORTCUTS = {
 
 function registerGlobalShortcuts() {
   for (const [accelerator, lang] of Object.entries(SHORTCUTS)) {
-    globalShortcut.register(accelerator, () => {
+    const ok = globalShortcut.register(accelerator, () => {
       const text = clipboard.readText();
       if (!text || !text.trim()) return;
       showPopup(text, lang);
     });
+    if (!ok) {
+      console.error(`[shortcut] failed to register ${accelerator} — already taken`);
+    }
   }
 }
 
