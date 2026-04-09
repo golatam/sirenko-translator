@@ -12,7 +12,7 @@ const {
 const path = require("path");
 const fs = require("fs");
 const Store = require("electron-store");
-const { translate, getKeychainToken } = require("./translate");
+const { translate, translateOpenAI, getKeychainToken, getCodexToken } = require("./translate");
 const { translateLocal, downloadModels, terminateWorker } = require("./translate-local");
 const { LANGUAGES } = require("./lang-detect");
 
@@ -28,6 +28,7 @@ if (!gotTheLock) {
 const store = new Store({
   defaults: {
     apiKey: "",
+    cloudProvider: "claude",
     defaultTargetLang: "en",
     enabled: true,
     translationMode: "cloud",
@@ -183,10 +184,12 @@ async function onDoubleCopy(text) {
 
   const mode = store.get("translationMode");
   if (mode !== "local") {
-    const apiKey = store.get("apiKey");
-    if (!apiKey && !(await getKeychainToken())) {
-      openSettings();
-      return;
+    const provider = store.get("cloudProvider") || "claude";
+    if (provider === "openai") {
+      if (!(await getCodexToken())) { openSettings(); return; }
+    } else {
+      const apiKey = store.get("apiKey");
+      if (!apiKey && !(await getKeychainToken())) { openSettings(); return; }
     }
   }
 
@@ -248,6 +251,7 @@ function showPopup(text, targetLangOverride, autoTranslate) {
       targetLang: targetLangOverride || store.get("defaultTargetLang"),
       languages: LANGUAGES,
       translationMode: store.get("translationMode"),
+      cloudProvider: store.get("cloudProvider") || "claude",
       autoTranslate: !!targetLangOverride || !!autoTranslate,
     });
   };
@@ -316,11 +320,7 @@ ipcMain.handle("translate", async (_event, text, targetLang) => {
   const controller = new AbortController();
   currentTranslationController = controller;
 
-  const apiKey = store.get("apiKey") || (await getKeychainToken());
-  if (!apiKey) {
-    currentTranslationController = null;
-    return { error: "API key not set. Please configure in Settings or run: claude auth login" };
-  }
+  const provider = store.get("cloudProvider") || "claude";
 
   // Stream chunks to popup as they arrive
   const sendChunk = (chunk) => {
@@ -330,7 +330,22 @@ ipcMain.handle("translate", async (_event, text, targetLang) => {
   };
 
   try {
-    const result = await translate(text, apiKey, targetLang, controller.signal, sendChunk);
+    let result;
+    if (provider === "openai") {
+      const codexToken = await getCodexToken();
+      if (!codexToken) {
+        currentTranslationController = null;
+        return { error: "ChatGPT not authorized. Run: codex auth login" };
+      }
+      result = await translateOpenAI(text, codexToken, targetLang, controller.signal, sendChunk);
+    } else {
+      const apiKey = store.get("apiKey") || (await getKeychainToken());
+      if (!apiKey) {
+        currentTranslationController = null;
+        return { error: "API key not set. Please configure in Settings or run: claude auth login" };
+      }
+      result = await translate(text, apiKey, targetLang, controller.signal, sendChunk);
+    }
     currentTranslationController = null;
     return result;
   } catch (err) {
@@ -346,6 +361,7 @@ ipcMain.handle("translate", async (_event, text, targetLang) => {
 
 ipcMain.handle("get-settings", () => ({
   apiKey: store.get("apiKey"),
+  cloudProvider: store.get("cloudProvider"),
   defaultTargetLang: store.get("defaultTargetLang"),
   enabled: store.get("enabled"),
   translationMode: store.get("translationMode"),
@@ -353,6 +369,7 @@ ipcMain.handle("get-settings", () => ({
 
 ipcMain.handle("save-settings", (_event, settings) => {
   if (settings.apiKey !== undefined) store.set("apiKey", settings.apiKey);
+  if (settings.cloudProvider !== undefined) store.set("cloudProvider", settings.cloudProvider);
   if (settings.defaultTargetLang !== undefined)
     store.set("defaultTargetLang", settings.defaultTargetLang);
   if (settings.translationMode !== undefined)
@@ -362,6 +379,13 @@ ipcMain.handle("save-settings", (_event, settings) => {
     settings.enabled ? startClipboardWatcher() : stopClipboardWatcher();
   }
   return { success: true };
+});
+
+// ─── IPC: Codex Auth Status ────────────────────────────────────────────────
+
+ipcMain.handle("get-codex-status", async () => {
+  const token = await getCodexToken();
+  return { authorized: !!token };
 });
 
 // ─── IPC: Model Download ────────────────────────────────────────────────────
@@ -457,8 +481,12 @@ app.whenReady().then(async () => {
 
   registerGlobalShortcuts();
 
-  if (store.get("translationMode") !== "local" && !store.get("apiKey") && !(await getKeychainToken())) {
-    openSettings();
+  if (store.get("translationMode") !== "local") {
+    const provider = store.get("cloudProvider") || "claude";
+    const needsSetup = provider === "openai"
+      ? !(await getCodexToken())
+      : !store.get("apiKey") && !(await getKeychainToken());
+    if (needsSetup) openSettings();
   }
 
   // Pre-warm: load default model pair in local mode (background, non-blocking)

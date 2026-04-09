@@ -43,8 +43,14 @@ window.api.onTranslationRequest((data) => {
 
   // Show mode badge
   const mode = data.translationMode || "cloud";
-  modeBadge.textContent = mode === "local" ? "LOCAL" : "CLOUD";
-  modeBadge.className = "mode-badge " + mode;
+  if (mode === "local") {
+    modeBadge.textContent = "LOCAL";
+    modeBadge.className = "mode-badge local";
+  } else {
+    const provider = data.cloudProvider || "claude";
+    modeBadge.textContent = provider === "openai" ? "GPT" : "CLAUDE";
+    modeBadge.className = "mode-badge cloud";
+  }
 
   // Auto-detect source and pick target
   const detectedSrc = detectLanguageLocal(data.text);

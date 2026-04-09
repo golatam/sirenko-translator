@@ -183,6 +183,33 @@ select {
   transition: width 0.2s;
 }
 
+/* Codex auth status */
+.codex-status {
+  font-size: 13px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  color: #999;
+}
+
+.codex-status.ok {
+  color: #37b24d;
+  border-color: rgba(55, 178, 77, 0.3);
+}
+
+.codex-status.err {
+  color: #e03131;
+  border-color: rgba(224, 49, 49, 0.3);
+}
+
+code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .mode-btn,
   .download-btn,

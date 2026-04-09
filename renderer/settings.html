@@ -13,7 +13,7 @@
       <label id="engineLabel">Translation Engine</label>
       <div class="mode-toggle" role="radiogroup" aria-labelledby="engineLabel">
         <button type="button" id="modeLocal" class="mode-btn" role="radio" aria-checked="false">Local Model</button>
-        <button type="button" id="modeCloud" class="mode-btn" role="radio" aria-checked="false">Cloud (Claude)</button>
+        <button type="button" id="modeCloud" class="mode-btn" role="radio" aria-checked="false">Cloud</button>
       </div>
       <p class="hint" id="modeHint" aria-live="polite">OPUS-MT models running locally. First use downloads ~300 MB per language pair.</p>
 
@@ -26,10 +26,24 @@
       </div>
     </div>
 
+    <div id="cloudProviderField" class="field">
+      <label id="providerLabel">Cloud Provider</label>
+      <div class="mode-toggle" role="radiogroup" aria-labelledby="providerLabel">
+        <button type="button" id="providerClaude" class="mode-btn" role="radio" aria-checked="false">Claude</button>
+        <button type="button" id="providerOpenAI" class="mode-btn" role="radio" aria-checked="false">ChatGPT</button>
+      </div>
+    </div>
+
     <div class="field" id="apiKeyField">
       <label for="apiKey">Claude API Key</label>
       <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
       <p class="hint">Your Anthropic API key. Stored locally on your machine.</p>
+    </div>
+
+    <div class="field" id="openaiKeyField" style="display: none;">
+      <label>ChatGPT Authorization</label>
+      <div id="codexStatus" class="codex-status">Checking...</div>
+      <p class="hint">Uses ChatGPT Plus subscription via Codex CLI. Run <code>codex auth login</code> in terminal to authorize.</p>
     </div>
 
     <div class="field">

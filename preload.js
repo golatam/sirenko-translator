@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("api", {
   // Settings
   getSettings: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
+  getCodexStatus: () => ipcRenderer.invoke("get-codex-status"),
 
   // Popup actions
   copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),
