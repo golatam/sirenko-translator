@@ -206,11 +206,17 @@ async function translate(text, apiKey, targetLang, signal, onChunk) {
   const isOAuth = apiKey.startsWith("sk-ant-oat");
   let retried = false;
 
+  // Estimate max_tokens from input length: translations are usually
+  // within ~2x of source in tokens. Rough 1 token ≈ 3 chars (safe for
+  // Cyrillic which tokenizes denser than Latin). Clamp to sane bounds.
+  const estimatedTokens = Math.ceil(text.length / 3) * 2 + 256;
+  const maxTokens = Math.min(8192, Math.max(1024, estimatedTokens));
+
   const doTranslate = async (key) => {
     const client = getClient(key);
     const msgParams = {
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: "user", content: text }],
     };
@@ -484,6 +490,17 @@ async function translateOpenAI(text, token, targetLang, signal, onChunk) {
           });
 
           res.on("end", () => {
+            // Flush any trailing line left in the buffer (SSE event
+            // without final newline would otherwise be dropped).
+            if (buffer && buffer.startsWith("data: ")) {
+              try {
+                const event = JSON.parse(buffer.slice(6));
+                if (event.type === "response.output_text.delta" && event.delta) {
+                  fullText += event.delta;
+                  if (onChunk) onChunk(event.delta);
+                }
+              } catch { /* ignore */ }
+            }
             resolve({
               translation: fullText,
               detectedSource: detectLanguage(text),

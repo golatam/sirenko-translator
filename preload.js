@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("api", {
   replaceInApp: (text) => ipcRenderer.invoke("replace-in-app", text),
   setBusy: (busy) => ipcRenderer.send("popup-busy", busy),
   closePopup: () => ipcRenderer.send("close-popup"),
+  saveLastTargetLang: (lang) => ipcRenderer.send("save-last-target-lang", lang),
 
   // Model management
   downloadModels: () => ipcRenderer.invoke("download-models"),

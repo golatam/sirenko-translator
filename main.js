@@ -25,13 +25,21 @@ if (!gotTheLock) {
 
 // ─── Store ──────────────────────────────────────────────────────────────────
 
+const POPUP_DEFAULT_WIDTH = 420;
+const POPUP_DEFAULT_HEIGHT = 320;
+const POPUP_MIN_WIDTH = 320;
+const POPUP_MIN_HEIGHT = 240;
+
 const store = new Store({
   defaults: {
     apiKey: "",
     cloudProvider: "claude",
     defaultTargetLang: "en",
+    lastTargetLang: null,
     enabled: true,
     translationMode: "cloud",
+    popupWidth: POPUP_DEFAULT_WIDTH,
+    popupHeight: POPUP_DEFAULT_HEIGHT,
   },
 });
 
@@ -198,13 +206,20 @@ async function onDoubleCopy(text) {
 
 // ─── Popup Window ───────────────────────────────────────────────────────────
 
+let savePopupSizeTimer = null;
+
 function createPopupWindow() {
+  const w = Math.max(POPUP_MIN_WIDTH, store.get("popupWidth") || POPUP_DEFAULT_WIDTH);
+  const h = Math.max(POPUP_MIN_HEIGHT, store.get("popupHeight") || POPUP_DEFAULT_HEIGHT);
+
   popupWindow = new BrowserWindow({
-    width: 420,
-    height: 320,
+    width: w,
+    height: h,
+    minWidth: POPUP_MIN_WIDTH,
+    minHeight: POPUP_MIN_HEIGHT,
     frame: false,
     transparent: true,
-    resizable: false,
+    resizable: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
@@ -224,6 +239,17 @@ function createPopupWindow() {
       popupWindow.hide();
     }
   });
+
+  // Persist user-chosen size (debounced, ignored while window is hidden during reposition)
+  popupWindow.on("resize", () => {
+    if (!popupWindow || popupWindow.isDestroyed() || !popupWindow.isVisible()) return;
+    if (savePopupSizeTimer) clearTimeout(savePopupSizeTimer);
+    savePopupSizeTimer = setTimeout(() => {
+      const [width, height] = popupWindow.getSize();
+      store.set("popupWidth", width);
+      store.set("popupHeight", height);
+    }, 250);
+  });
 }
 
 function showPopup(text, targetLangOverride, autoTranslate) {
@@ -231,24 +257,27 @@ function showPopup(text, targetLangOverride, autoTranslate) {
   const display = screen.getDisplayNearestPoint(cursorPoint);
   const { workArea } = display;
 
-  const popupWidth = 420;
-  const popupHeight = 320;
+  if (!popupWindow || popupWindow.isDestroyed()) {
+    createPopupWindow();
+  }
+
+  const [popupWidth, popupHeight] = popupWindow.getSize();
 
   let x = cursorPoint.x - popupWidth / 2;
   let y = cursorPoint.y + 20;
   x = Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - popupWidth));
   y = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - popupHeight));
 
-  if (!popupWindow || popupWindow.isDestroyed()) {
-    createPopupWindow();
-  }
-
   popupWindow.setPosition(Math.round(x), Math.round(y));
 
   const sendRequest = () => {
+    const defaultTarget =
+      targetLangOverride ||
+      store.get("lastTargetLang") ||
+      store.get("defaultTargetLang");
     popupWindow.webContents.send("translation-request", {
       text,
-      targetLang: targetLangOverride || store.get("defaultTargetLang"),
+      targetLang: defaultTarget,
       languages: LANGUAGES,
       translationMode: store.get("translationMode"),
       cloudProvider: store.get("cloudProvider") || "claude",
@@ -433,6 +462,12 @@ ipcMain.handle("replace-in-app", async (_event, text) => {
   });
 
   return { success: true };
+});
+
+ipcMain.on("save-last-target-lang", (_event, lang) => {
+  if (typeof lang === "string" && lang) {
+    store.set("lastTargetLang", lang);
+  }
 });
 
 ipcMain.on("popup-busy", (_event, busy) => {

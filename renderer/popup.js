@@ -85,8 +85,9 @@ translateBtn.addEventListener("click", () => {
   startTranslation();
 });
 
-// Language changed — translate immediately
+// Language changed — remember choice and translate immediately
 targetLangSelect.addEventListener("change", () => {
+  window.api.saveLastTargetLang(targetLangSelect.value);
   if (currentSourceText) {
     startTranslation();
   }
