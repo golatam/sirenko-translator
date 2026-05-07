@@ -128,20 +128,24 @@ function markOwnClipboardWrite() {
   ignoreClipboardUntil = Date.now() + 500;
 }
 
-function handleClipboardData(data) {
+function handleClipboardChange(delta) {
   if (Date.now() < ignoreClipboardUntil) return;
 
-  const lines = data.toString().trim().split("\n");
-  for (const line of lines) {
-    if (line === "copy") {
-      const now = Date.now();
-      const timeSinceLastCopy = now - lastCopyTime;
-      lastCopyTime = now;
+  // Two (or more) Cmd+C presses landed inside one poll window. Trigger
+  // immediately and reset the timestamp so a subsequent single press
+  // doesn't get falsely chained as the second of a pair.
+  if (delta >= 2) {
+    lastCopyTime = 0;
+    onDoubleCopy(clipboard.readText());
+    return;
+  }
 
-      if (timeSinceLastCopy < 1000 && timeSinceLastCopy > 50) {
-        onDoubleCopy(clipboard.readText());
-      }
-    }
+  const now = Date.now();
+  const timeSinceLastCopy = now - lastCopyTime;
+  lastCopyTime = now;
+
+  if (timeSinceLastCopy < 1000 && timeSinceLastCopy > 50) {
+    onDoubleCopy(clipboard.readText());
   }
 }
 
@@ -173,10 +177,10 @@ function startClipboardWatcher() {
   lastChangeCount = getChangeCount();
   clipboardPollTimer = setInterval(() => {
     const count = getChangeCount();
-    if (count !== -1 && count !== lastChangeCount) {
-      lastChangeCount = count;
-      handleClipboardData("copy\n");
-    }
+    if (count === -1 || count === lastChangeCount) return;
+    const delta = count - lastChangeCount;
+    lastChangeCount = count;
+    handleClipboardChange(delta);
   }, 300);
 }
 
@@ -230,6 +234,10 @@ function createPopupWindow() {
       nodeIntegration: false,
     },
   });
+
+  // Follow the user across Spaces / fullscreen apps instead of pulling them
+  // back to the Space where the window was last shown.
+  popupWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   popupWindow.loadFile(path.join(__dirname, "renderer", "popup.html"));
 
