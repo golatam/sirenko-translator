@@ -39,6 +39,8 @@ npm run dmg      # собрать .dmg-инсталлятор
 
 Сборка идёт через `electron-builder`, без подписи (`identity: null`) — для личного использования этого достаточно. При первом запуске macOS попросит «Открыть всё равно» в System Settings → Privacy & Security.
 
+В `package.json` стоит `"asar": false` — это **намеренный workaround**, а не упущение. На `electron-builder 25.1.8` с текущим набором зависимостей сборка падает на `readAsarHeader` с `RangeError: offset out of range -118883576` при вычислении integrity hash. С отключённым ASAR код приложения лежит в `Contents/Resources/app/` обычными файлами; ML-зависимости (`@xenova/transformers`, `onnxruntime-node`) и так были в `asarUnpack`, поэтому on-disk layout почти не меняется. Если в будущем поменять версию `electron-builder` и захочется вернуть ASAR — сначала убедись, что сборка проходит, а не наоборот.
+
 ## Архитектура (кратко)
 
 - `main.js` — главный процесс Electron: tray, popup window, settings window, clipboard watcher, регистрация global shortcuts.
