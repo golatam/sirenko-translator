@@ -53,10 +53,18 @@ let popupBusy = false;
 
 // Clipboard watcher
 let lastCopyTime = 0;
+let lastCopyText = "";
 let clipboardWatcherProcess = null;
 let clipboardPollTimer = null;
 let lastChangeCount = -1;
 let ignoreClipboardUntil = 0;
+
+// Double-Cmd+C window: a real double-tap is fast (<500ms) and copies
+// the same selection twice. Two unrelated copies in quick succession
+// would also fall under 1s but produce different text — those must
+// NOT trigger the popup.
+const DOUBLE_COPY_MAX_MS = 500;
+const DOUBLE_COPY_MIN_MS = 50;
 
 // Translation cancellation
 let currentTranslationController = null;
@@ -136,21 +144,32 @@ function markOwnClipboardWrite() {
 function handleClipboardChange(delta) {
   if (Date.now() < ignoreClipboardUntil) return;
 
+  const text = clipboard.readText();
+
   // Two (or more) Cmd+C presses landed inside one poll window. Trigger
-  // immediately and reset the timestamp so a subsequent single press
-  // doesn't get falsely chained as the second of a pair.
+  // immediately and reset state so a subsequent single press doesn't
+  // get falsely chained as the second of a pair.
   if (delta >= 2) {
     lastCopyTime = 0;
-    onDoubleCopy(clipboard.readText());
+    lastCopyText = "";
+    onDoubleCopy(text);
     return;
   }
 
   const now = Date.now();
   const timeSinceLastCopy = now - lastCopyTime;
-  lastCopyTime = now;
+  const sameSelection = text === lastCopyText && text !== "";
 
-  if (timeSinceLastCopy < 1000 && timeSinceLastCopy > 50) {
-    onDoubleCopy(clipboard.readText());
+  lastCopyTime = now;
+  lastCopyText = text;
+
+  if (
+    timeSinceLastCopy < DOUBLE_COPY_MAX_MS &&
+    timeSinceLastCopy > DOUBLE_COPY_MIN_MS &&
+    sameSelection
+  ) {
+    lastCopyText = "";
+    onDoubleCopy(text);
   }
 }
 
