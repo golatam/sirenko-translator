@@ -41,6 +41,37 @@ npm run dmg      # собрать .dmg-инсталлятор
 
 В `package.json` стоит `"asar": false` — это **намеренный workaround**, а не упущение. На `electron-builder 25.1.8` с текущим набором зависимостей сборка падает на `readAsarHeader` с `RangeError: offset out of range -118883576` при вычислении integrity hash. С отключённым ASAR код приложения лежит в `Contents/Resources/app/` обычными файлами; ML-зависимости (`@xenova/transformers`, `onnxruntime-node`) и так были в `asarUnpack`, поэтому on-disk layout почти не меняется. Если в будущем поменять версию `electron-builder` и захочется вернуть ASAR — сначала убедись, что сборка проходит, а не наоборот.
 
+## Auto-update
+
+Приложение умеет обновляться без переустановки `.app`. При старте (с задержкой 30 с) и далее раз в 6 часов оно тянет `latest.json` из этого репозитория и сравнивает версии. Также обновление можно запустить вручную из трея → **Check for Updates...**
+
+Источник манифеста: `https://raw.githubusercontent.com/golatam/sirenko-translator/main/latest.json`. Бинарники — assets GitHub-релизов того же репо.
+
+### Два типа обновлений
+
+| Тип | Что меняется | Размер | Когда использовать |
+|---|---|---|---|
+| `js` | Только наши JS/HTML/CSS файлы внутри `Contents/Resources/app/` | ~сотни КБ | Правки логики, UI, промптов. Не трогает Electron, native-модули, ML-модели. |
+| `full` | Всё `.app` целиком, swap через детач-скрипт | ~сотни МБ | Бамп Electron, замена native-зависимостей, обновление моделей. |
+
+JS-апдейт хранит в манифесте `minBaseVersion` — клиент откажется применять `js`-патч, если его база старее: значит, нужно сначала прокатить `full`-обновление.
+
+### Как выпустить релиз
+
+1. Подними `version` в `package.json` (semver `x.y.z`).
+2. Собери артефакт:
+   - JS-обновление: `npm run build:update:js` → `releases/translator-X.Y.Z-js.zip`
+   - Full-обновление: `npm run build:update:full` → `releases/translator-X.Y.Z-full.zip`
+   Скрипт напечатает sha256 и готовый блок `latest.json`.
+3. Создай GitHub Release `vX.Y.Z`, загрузи zip как release asset.
+4. Закоммить `latest.json` в `main`. Клиенты тянут его как сырой файл с `raw.githubusercontent.com`, поэтому `git push` — это и есть «деплой» обновления.
+
+### Почему это работает без подписи
+
+`electron-updater` + Squirrel.Mac требуют валидный Developer ID, потому что macOS откажется запускать переподписанный bundle. У нас приложение **не подписано вообще** (`identity: null`) — Gatekeeper уже отметил его как «approved by user» один раз. Когда мы swap-аем содержимое `Resources/app/` (или весь `.app` через скрипт-хвост) без участия `codesign`, маркер user-approval сохраняется, и macOS не показывает повторного диалога.
+
+Если когда-нибудь добавишь codesign — `xattr -dr com.apple.quarantine` в helper-скрипте перестанет быть нужен, и можно будет смотреть в сторону `electron-updater`.
+
 ## Архитектура (кратко)
 
 - `main.js` — главный процесс Electron: tray, popup window, settings window, clipboard watcher, регистрация global shortcuts.

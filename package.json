@@ -7,7 +7,9 @@
     "start": "electron .",
     "dist": "electron-builder --mac --dir",
     "dmg": "electron-builder --mac",
-    "deploy": "electron-builder --mac --dir && rm -rf /Applications/Translator.app && cp -R dist/mac-arm64/Translator.app /Applications/Translator.app && echo '✓ Installed to /Applications/Translator.app'"
+    "deploy": "electron-builder --mac --dir && rm -rf /Applications/Translator.app && cp -R dist/mac-arm64/Translator.app /Applications/Translator.app && echo '✓ Installed to /Applications/Translator.app'",
+    "build:update:js": "node scripts/build-update.js js",
+    "build:update:full": "electron-builder --mac --dir && node scripts/build-update.js full"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

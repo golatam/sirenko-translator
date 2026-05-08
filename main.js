@@ -15,6 +15,7 @@ const Store = require("electron-store");
 const { translate, translateOpenAI, getKeychainToken, getCodexToken } = require("./translate");
 const { translateLocal, downloadModels, terminateWorker } = require("./translate-local");
 const { LANGUAGES } = require("./lang-detect");
+const { checkForUpdates, scheduleUpdateChecks } = require("./updater");
 
 // ─── Single Instance Lock ───────────────────────────────────────────────────
 
@@ -115,6 +116,10 @@ function createTray() {
       },
     },
     { label: "Settings...", click: () => openSettings() },
+    {
+      label: "Check for Updates...",
+      click: () => checkForUpdates({ silent: false }).catch(() => {}),
+    },
     { type: "separator" },
     { label: "Quit", click: () => app.quit() },
   ]);
@@ -537,6 +542,8 @@ app.whenReady().then(async () => {
     const targetLang = store.get("defaultTargetLang") || "en";
     translateLocal("warmup", targetLang).catch(() => {});
   }
+
+  scheduleUpdateChecks();
 });
 
 app.on("will-quit", () => {
