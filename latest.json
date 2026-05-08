@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "kind": "js",
+  "url": "",
+  "sha256": "",
+  "notes": "Initial baseline manifest. Bump version + add real url/sha256 to ship an update."
+}
