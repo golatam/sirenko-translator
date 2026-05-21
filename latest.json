@@ -1,8 +1,8 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "kind": "js",
-  "url": "https://github.com/golatam/sirenko-translator/releases/download/v1.0.1/translator-1.0.1-js.zip",
-  "sha256": "62b86352e11ac4450166c7b74c83c602cbba41ac5578b9dbc20a6a768361f498",
-  "notes": "Tighter double-Cmd+C detection: 500ms window (was 1s) and the two copies must contain the same text — fewer accidental popups during regular copying.",
+  "url": "https://github.com/golatam/sirenko-translator/releases/download/v1.0.2/translator-1.0.2-js.zip",
+  "sha256": "cc3c050717447f0bf3bb3260d9a6db82e5b0a83e44ae3039df102cccb4907db2",
+  "notes": "Fix: double Cmd+C stopped triggering the popup in 1.0.1. The 500ms window was tighter than the 300ms clipboard poll interval, so a clean double-tap could span ~600ms between samples and be missed. Restored the 1s window; the same-text check from 1.0.1 still filters unrelated copies.",
   "minBaseVersion": "1.0.0"
 }
