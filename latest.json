@@ -1,8 +1,8 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "kind": "js",
-  "url": "https://github.com/golatam/sirenko-translator/releases/download/v1.0.2/translator-1.0.2-js.zip",
-  "sha256": "cc3c050717447f0bf3bb3260d9a6db82e5b0a83e44ae3039df102cccb4907db2",
-  "notes": "Fix: double Cmd+C stopped triggering the popup in 1.0.1. The 500ms window was tighter than the 300ms clipboard poll interval, so a clean double-tap could span ~600ms between samples and be missed. Restored the 1s window; the same-text check from 1.0.1 still filters unrelated copies.",
+  "url": "https://github.com/golatam/sirenko-translator/releases/download/v1.0.3/translator-1.0.3-js.zip",
+  "sha256": "1e0462b19fda065327666795bdf01170356fcd130bdef912a16e4fc7cd77851b",
+  "notes": "Fix: when the cloud provider's OAuth token can no longer be refreshed (e.g. OpenAI's refresh_token_reused), double Cmd+C did nothing — the error bubbled out of the clipboard handler unhandled. Now the popup opens Settings and shows an explicit dialog so it's clear you need to re-sign in.",
   "minBaseVersion": "1.0.0"
 }

@@ -8,6 +8,7 @@ const {
   screen,
   nativeImage,
   globalShortcut,
+  dialog,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
@@ -217,18 +218,44 @@ function stopClipboardWatcher() {
   }
 }
 
+// Resolve the auth state for the current cloud provider. Catches refresh
+// failures (e.g. OpenAI's refresh_token_reused, network errors) so they
+// don't bubble up as unhandled rejections from the clipboard watcher and
+// silently swallow the popup trigger.
+async function resolveAuth() {
+  const mode = store.get("translationMode");
+  if (mode === "local") return { ok: true };
+
+  const provider = store.get("cloudProvider") || "claude";
+  try {
+    if (provider === "openai") {
+      const token = await getCodexToken();
+      if (!token) return { ok: false };
+      return { ok: true };
+    }
+    const apiKey = store.get("apiKey");
+    if (apiKey) return { ok: true };
+    const kc = await getKeychainToken();
+    if (kc) return { ok: true };
+    return { ok: false };
+  } catch (err) {
+    return { ok: false, error: err };
+  }
+}
+
 async function onDoubleCopy(text) {
   if (!text || !text.trim()) return;
 
-  const mode = store.get("translationMode");
-  if (mode !== "local") {
-    const provider = store.get("cloudProvider") || "claude";
-    if (provider === "openai") {
-      if (!(await getCodexToken())) { openSettings(); return; }
-    } else {
-      const apiKey = store.get("apiKey");
-      if (!apiKey && !(await getKeychainToken())) { openSettings(); return; }
+  const auth = await resolveAuth();
+  if (!auth.ok) {
+    if (auth.error) {
+      dialog.showErrorBox(
+        "Translator: re-sign in required",
+        `${auth.error.message || auth.error}\n\nOpening Settings — please re-authenticate.`
+      );
     }
+    openSettings();
+    return;
   }
 
   showPopup(text, null, true);
