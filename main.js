@@ -60,9 +60,9 @@ let clipboardPollTimer = null;
 let lastChangeCount = -1;
 let ignoreClipboardUntil = 0;
 
-// Double-Cmd+C window. The clipboard is polled every 300ms (see
+// Double-Cmd+C window. The clipboard is polled every 150ms (see
 // startClipboardWatcher), so two presses can land in adjacent ticks
-// with ~600ms between handleClipboardChange calls even when the user
+// with ~300ms between handleClipboardChange calls even when the user
 // double-taps cleanly. The upper bound must comfortably exceed that;
 // false matches from two unrelated copies are filtered by the
 // sameSelection check below, not by the window.
@@ -149,10 +149,11 @@ function handleClipboardChange(delta) {
 
   const text = clipboard.readText();
 
-  // Two (or more) Cmd+C presses landed inside one poll window. Trigger
-  // immediately and reset state so a subsequent single press doesn't
-  // get falsely chained as the second of a pair.
-  if (delta >= 2) {
+  // Two Cmd+C presses may land inside one poll window (delta >= 2).
+  // But some apps also bump changeCount by 2 for a single copy
+  // (clearContents + writeObjects), so only trust delta >= 2 when the
+  // clipboard text matches what we already had — confirming same selection.
+  if (delta >= 2 && text === lastCopyText && text !== "") {
     lastCopyTime = 0;
     lastCopyText = "";
     onDoubleCopy(text);
@@ -208,7 +209,7 @@ function startClipboardWatcher() {
     const delta = count - lastChangeCount;
     lastChangeCount = count;
     handleClipboardChange(delta);
-  }, 300);
+  }, 150);
 }
 
 function stopClipboardWatcher() {
