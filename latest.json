@@ -1,8 +1,8 @@
 {
-  "version": "1.0.3",
+  "version": "1.0.4",
   "kind": "js",
-  "url": "https://github.com/golatam/sirenko-translator/releases/download/v1.0.3/translator-1.0.3-js.zip",
-  "sha256": "1e0462b19fda065327666795bdf01170356fcd130bdef912a16e4fc7cd77851b",
-  "notes": "Fix: when the cloud provider's OAuth token can no longer be refreshed (e.g. OpenAI's refresh_token_reused), double Cmd+C did nothing — the error bubbled out of the clipboard handler unhandled. Now the popup opens Settings and shows an explicit dialog so it's clear you need to re-sign in.",
+  "url": "https://github.com/golatam/sirenko-translator/releases/download/v1.0.4/translator-1.0.4-js.zip",
+  "sha256": "3411e009317235e2d3cd52439a784f062d4b57a70c6659bc5413dec10525c500",
+  "notes": "Fix: single Cmd+C no longer falsely triggers translation. Some apps bump the clipboard change counter twice for one copy — the detector now requires matching text before treating that as a double-press.",
   "minBaseVersion": "1.0.0"
 }
