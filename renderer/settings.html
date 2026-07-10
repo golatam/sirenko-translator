@@ -37,13 +37,28 @@
     <div class="field" id="apiKeyField">
       <label for="apiKey">Claude API Key</label>
       <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
-      <p class="hint">Your Anthropic API key. Stored locally on your machine.</p>
+      <p class="hint">Your Anthropic API key. Stored locally on your machine. Leave empty to reuse a Claude Code sign-in if present.</p>
+    </div>
+
+    <div class="field" id="claudeModelField">
+      <label for="claudeModel">Claude Model</label>
+      <select id="claudeModel">
+        <option value="claude-haiku-4-5">Haiku 4.5 — fast &amp; cheap (default)</option>
+        <option value="claude-sonnet-4-6">Sonnet 4.6 — better quality</option>
+        <option value="claude-sonnet-5">Sonnet 5 — best quality</option>
+      </select>
     </div>
 
     <div class="field" id="openaiKeyField" style="display: none;">
       <label>ChatGPT Authorization</label>
       <div id="codexStatus" class="codex-status">Checking...</div>
-      <p class="hint">Uses ChatGPT Plus subscription via Codex CLI. Run <code>codex auth login</code> in terminal to authorize.</p>
+      <p class="hint">Uses your ChatGPT Plus subscription via the Codex CLI. Run <code>codex login</code> in Terminal to authorize.</p>
+    </div>
+
+    <div class="field" id="openaiModelField" style="display: none;">
+      <label for="openaiModel">ChatGPT Model</label>
+      <input type="text" id="openaiModel" placeholder="gpt-5.4-mini" autocomplete="off" spellcheck="false">
+      <p class="hint">Model ID on the ChatGPT backend. Default: <code>gpt-5.4-mini</code>.</p>
     </div>
 
     <div class="field">
@@ -62,6 +77,24 @@
         <span>Enable clipboard watcher</span>
       </label>
       <p class="hint">Double Cmd+C triggers translation popup.</p>
+    </div>
+
+    <div class="field">
+      <label>Global Shortcuts</label>
+      <p class="hint" style="margin-bottom: 8px;">Translate the clipboard into a fixed language. Click a field, then press the key combo. Backspace clears.</p>
+      <div class="shortcut-row">
+        <span class="shortcut-lang">English</span>
+        <input type="text" class="shortcut-input" id="shortcut-en" data-lang="en" readonly placeholder="click to record">
+      </div>
+      <div class="shortcut-row">
+        <span class="shortcut-lang">Russian</span>
+        <input type="text" class="shortcut-input" id="shortcut-ru" data-lang="ru" readonly placeholder="click to record">
+      </div>
+      <div class="shortcut-row">
+        <span class="shortcut-lang">Spanish</span>
+        <input type="text" class="shortcut-input" id="shortcut-es" data-lang="es" readonly placeholder="click to record">
+      </div>
+      <p class="hint shortcut-error" id="shortcutError" aria-live="polite"></p>
     </div>
 
     <div class="actions">

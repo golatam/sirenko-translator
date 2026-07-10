@@ -1,0 +1,42 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what happened instead?
+      placeholder: "Selected text in Safari, pressed Cmd+C twice, but..."
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: App version
+      placeholder: "1.0.4 (tray menu → Check for Updates shows it)"
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: "e.g. macOS 15.5, Apple Silicon"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Translation mode
+      options:
+        - Cloud → Claude (API key)
+        - Cloud → Claude (Claude Code sign-in)
+        - Cloud → ChatGPT
+        - Local (offline)
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: If relevant — error dialogs, popup screenshots, or console output from `npm start`.

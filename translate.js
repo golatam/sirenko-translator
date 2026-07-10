@@ -9,6 +9,9 @@ const OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 const KEYCHAIN_SERVICE = "Claude Code-credentials";
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5 min before expiry
 
+const DEFAULT_CLAUDE_MODEL = "claude-haiku-4-5";
+const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
+
 // ─── Cached state ───────────────────────────────────────────────────────────
 
 let cachedOauth = undefined; // full { accessToken, refreshToken, expiresAt, ... }
@@ -170,12 +173,22 @@ async function forceRefreshKeychainToken() {
 
 /**
  * Get or create a reusable Anthropic SDK client.
- * Both API keys and OAuth tokens are sent via x-api-key header.
+ * API keys (sk-ant-api...) go via x-api-key; OAuth tokens (sk-ant-oat...)
+ * must go via Authorization: Bearer + the oauth beta header — the API
+ * rejects them on x-api-key.
  */
 function getClient(key) {
   if (cachedClient && cachedClientKey === key) return cachedClient;
   const Anthropic = require("@anthropic-ai/sdk");
-  cachedClient = new Anthropic({ apiKey: key });
+  if (key.startsWith("sk-ant-oat")) {
+    cachedClient = new Anthropic({
+      apiKey: null,
+      authToken: key,
+      defaultHeaders: { "anthropic-beta": "oauth-2025-04-20" },
+    });
+  } else {
+    cachedClient = new Anthropic({ apiKey: key });
+  }
   cachedClientKey = key;
   return cachedClient;
 }
@@ -189,8 +202,9 @@ function getClient(key) {
  * @param {string} [targetLang]
  * @param {AbortSignal} [signal]
  * @param {(chunk: string) => void} [onChunk] - Called with each text chunk
+ * @param {string} [model] - Claude model ID (defaults to Haiku)
  */
-async function translate(text, apiKey, targetLang, signal, onChunk) {
+async function translate(text, apiKey, targetLang, signal, onChunk, model) {
   if (!targetLang) {
     targetLang = autoTargetLang(text);
   }
@@ -215,7 +229,7 @@ async function translate(text, apiKey, targetLang, signal, onChunk) {
   const doTranslate = async (key) => {
     const client = getClient(key);
     const msgParams = {
-      model: "claude-haiku-4-5-20251001",
+      model: model || DEFAULT_CLAUDE_MODEL,
       max_tokens: maxTokens,
       system: systemPrompt,
       messages: [{ role: "user", content: text }],
@@ -406,8 +420,9 @@ async function forceRefreshCodexToken() {
  * @param {string} [targetLang]
  * @param {AbortSignal} [signal]
  * @param {(chunk: string) => void} [onChunk]
+ * @param {string} [model] - Model ID on the ChatGPT backend
  */
-async function translateOpenAI(text, token, targetLang, signal, onChunk) {
+async function translateOpenAI(text, token, targetLang, signal, onChunk, model) {
   if (!targetLang) {
     targetLang = autoTargetLang(text);
   }
@@ -425,7 +440,7 @@ async function translateOpenAI(text, token, targetLang, signal, onChunk) {
   const doTranslate = async (key) => {
     const accountId = cachedOpenAIOauth?.accountId;
     const body = JSON.stringify({
-      model: "gpt-5.4-mini",
+      model: model || DEFAULT_OPENAI_MODEL,
       instructions: systemPrompt,
       input: [{ role: "user", content: text }],
       store: false,

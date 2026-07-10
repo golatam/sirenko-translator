@@ -5,11 +5,14 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --mac --dir",
-    "dmg": "electron-builder --mac",
-    "deploy": "electron-builder --mac --dir && rm -rf /Applications/Translator.app && cp -R dist/mac-arm64/Translator.app /Applications/Translator.app && echo '✓ Installed to /Applications/Translator.app'",
+    "icon": "electron scripts/make-icon.js",
+    "dist": "electron-builder --mac --dir --arm64",
+    "dist:x64": "electron-builder --mac --dir --x64",
+    "dmg": "electron-builder --mac dmg --arm64",
+    "dmg:x64": "electron-builder --mac dmg --x64",
+    "deploy": "electron-builder --mac --dir --arm64 && rm -rf /Applications/Translator.app && cp -R dist/mac-arm64/Translator.app /Applications/Translator.app && echo '✓ Installed to /Applications/Translator.app'",
     "build:update:js": "node scripts/build-update.js js",
-    "build:update:full": "electron-builder --mac --dir && node scripts/build-update.js full"
+    "build:update:full": "electron-builder --mac --dir --arm64 && node scripts/build-update.js full"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -21,12 +24,15 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "com.kirill.translator",
+    "appId": "com.sirenko.translator",
     "productName": "Translator",
     "files": [
       "**/*",
       "!**/*.md",
-      "!.git/**"
+      "!.git/**",
+      "!docs/**",
+      "!.github/**",
+      "!scripts/make-icon.js"
     ],
     "asarUnpack": [
       "node_modules/@xenova/**",
@@ -36,7 +42,8 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": "dir",
-      "identity": null
+      "identity": null,
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "asar": false
   }

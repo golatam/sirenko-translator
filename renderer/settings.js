@@ -1,6 +1,12 @@
 const apiKeyInput = document.getElementById("apiKey");
 const apiKeyField = document.getElementById("apiKeyField");
+const claudeModelField = document.getElementById("claudeModelField");
+const claudeModelSelect = document.getElementById("claudeModel");
 const openaiKeyField = document.getElementById("openaiKeyField");
+const openaiModelField = document.getElementById("openaiModelField");
+const openaiModelInput = document.getElementById("openaiModel");
+const shortcutInputs = Array.from(document.querySelectorAll(".shortcut-input"));
+const shortcutError = document.getElementById("shortcutError");
 const codexStatusEl = document.getElementById("codexStatus");
 const cloudProviderField = document.getElementById("cloudProviderField");
 const providerClaudeBtn = document.getElementById("providerClaude");
@@ -27,33 +33,37 @@ function showSaved() {
   showSaved._timer = setTimeout(() => { statusEl.textContent = ""; }, 1500);
 }
 
+function refreshFieldVisibility() {
+  const isLocal = currentMode === "local";
+  const showClaude = !isLocal && currentProvider === "claude";
+  const showOpenAI = !isLocal && currentProvider === "openai";
+
+  cloudProviderField.style.display = isLocal ? "none" : "";
+  apiKeyField.style.display = showClaude ? "" : "none";
+  claudeModelField.style.display = showClaude ? "" : "none";
+  openaiKeyField.style.display = showOpenAI ? "" : "none";
+  openaiModelField.style.display = showOpenAI ? "" : "none";
+  modelSection.style.display = isLocal ? "" : "none";
+
+  modeHint.textContent = isLocal
+    ? "OPUS-MT models running locally. First use downloads ~300 MB per language pair."
+    : currentProvider === "openai"
+      ? "Uses your ChatGPT Plus subscription via the Codex CLI."
+      : "Uses the Claude API — your API key or a Claude Code sign-in.";
+}
+
 function setProvider(provider) {
   currentProvider = provider;
   providerClaudeBtn.classList.toggle("active", provider === "claude");
   providerOpenAIBtn.classList.toggle("active", provider === "openai");
-  apiKeyField.style.display = provider === "claude" ? "" : "none";
-  openaiKeyField.style.display = provider === "openai" ? "" : "none";
+  refreshFieldVisibility();
 }
 
 function setMode(mode) {
   currentMode = mode;
-
   modeLocalBtn.classList.toggle("active", mode === "local");
   modeCloudBtn.classList.toggle("active", mode === "cloud");
-
-  // Hide cloud fields in local mode, show model section
-  cloudProviderField.style.display = mode === "local" ? "none" : "";
-  apiKeyField.style.display = mode === "local" ? "none" : (currentProvider === "claude" ? "" : "none");
-  openaiKeyField.style.display = mode === "local" ? "none" : (currentProvider === "openai" ? "" : "none");
-  modelSection.style.display = mode === "local" ? "" : "none";
-
-  // Update hint text
-  modeHint.textContent =
-    mode === "local"
-      ? "OPUS-MT models running locally. First use downloads ~300 MB per language pair."
-      : currentProvider === "openai"
-        ? "Uses GPT-4o-mini via OpenAI API."
-        : "Uses Claude Haiku via Anthropic API or CLI.";
+  refreshFieldVisibility();
 }
 
 modeLocalBtn.addEventListener("click", async () => {
@@ -85,11 +95,20 @@ async function loadSettings() {
   try {
     const settings = await window.api.getSettings();
     apiKeyInput.value = settings.apiKey || "";
+    claudeModelSelect.value = settings.claudeModel || "claude-haiku-4-5";
+    if (!claudeModelSelect.value) claudeModelSelect.value = "claude-haiku-4-5";
+    openaiModelInput.value = settings.openaiModel || "";
     defaultLangSelect.value = settings.defaultTargetLang || "";
     updateCodexStatus();
     enabledCheckbox.checked = settings.enabled !== false;
     setProvider(settings.cloudProvider || "claude");
     setMode(settings.translationMode || "cloud");
+
+    const shortcuts = settings.shortcuts || {};
+    for (const input of shortcutInputs) {
+      input.dataset.accelerator = shortcuts[input.dataset.lang] || "";
+      input.value = prettyAccelerator(input.dataset.accelerator);
+    }
   } catch {
     statusEl.textContent = "Failed to load settings";
   }
@@ -122,6 +141,102 @@ apiKeyInput.addEventListener("keydown", (e) => {
     saveApiKey();
   }
 });
+
+// Model selection
+claudeModelSelect.addEventListener("change", async () => {
+  await window.api.saveSettings({ claudeModel: claudeModelSelect.value });
+  showSaved();
+});
+
+async function saveOpenAIModel() {
+  const model = openaiModelInput.value.trim() || "gpt-5.4-mini";
+  openaiModelInput.value = model;
+  await window.api.saveSettings({ openaiModel: model });
+  showSaved();
+}
+openaiModelInput.addEventListener("blur", saveOpenAIModel);
+openaiModelInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    saveOpenAIModel();
+  }
+});
+
+// ─── Global Shortcut Recording ───────────────────────────────────────────────
+
+// Map a keydown event to an Electron accelerator string, or null if the
+// combo is unusable (no non-shift modifier, or a bare modifier key).
+function eventToAccelerator(e) {
+  const mods = [];
+  if (e.ctrlKey) mods.push("Ctrl");
+  if (e.altKey) mods.push("Alt");
+  if (e.shiftKey) mods.push("Shift");
+  if (e.metaKey) mods.push("Command");
+  if (!e.ctrlKey && !e.altKey && !e.metaKey) return null;
+
+  let key = e.key;
+  if (["Control", "Alt", "Shift", "Meta"].includes(key)) return null;
+  if (key === " ") key = "Space";
+  else if (key.length === 1) key = key.toUpperCase();
+  // e.key gives the char produced with modifiers; for letters/digits use e.code
+  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  else if (/^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
+
+  return [...mods, key].join("+");
+}
+
+function prettyAccelerator(acc) {
+  if (!acc) return "";
+  return acc
+    .replace("Ctrl", "⌃")
+    .replace("Alt", "⌥")
+    .replace("Shift", "⇧")
+    .replace("Command", "⌘")
+    .replace(/\+/g, "");
+}
+
+async function saveShortcut(input, accelerator) {
+  input.dataset.accelerator = accelerator;
+  input.value = prettyAccelerator(accelerator);
+  shortcutError.textContent = "";
+
+  const result = await window.api.saveSettings({
+    shortcuts: { [input.dataset.lang]: accelerator },
+  });
+  if (result.failedShortcuts && result.failedShortcuts[input.dataset.lang]) {
+    shortcutError.textContent = `${prettyAccelerator(accelerator)} is taken by another app — pick a different combo.`;
+  } else {
+    showSaved();
+  }
+}
+
+for (const input of shortcutInputs) {
+  input.addEventListener("focus", () => {
+    input.classList.add("recording");
+    input.placeholder = "press keys…";
+  });
+  input.addEventListener("blur", () => {
+    input.classList.remove("recording");
+    input.placeholder = "click to record";
+    input.value = prettyAccelerator(input.dataset.accelerator || "");
+  });
+  input.addEventListener("keydown", (e) => {
+    e.preventDefault();
+    if (e.key === "Escape") {
+      input.blur();
+      return;
+    }
+    if (e.key === "Backspace" || e.key === "Delete") {
+      saveShortcut(input, ""); // clear — shortcut disabled
+      input.blur();
+      return;
+    }
+    const accelerator = eventToAccelerator(e);
+    if (!accelerator) return; // incomplete combo — keep recording
+    saveShortcut(input, accelerator);
+    input.blur();
+  });
+}
 
 async function updateCodexStatus() {
   try {

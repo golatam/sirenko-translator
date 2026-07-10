@@ -36,6 +36,7 @@ label {
 }
 
 input[type="password"],
+input[type="text"],
 select {
   width: 100%;
   padding: 8px 12px;
@@ -50,8 +51,40 @@ select {
 }
 
 input[type="password"]:focus,
+input[type="text"]:focus,
 select:focus {
   border-color: #4c6ef5;
+}
+
+/* Global shortcut recorder */
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.shortcut-lang {
+  flex: 0 0 70px;
+  font-size: 13px;
+  color: #ccc;
+}
+
+.shortcut-input {
+  flex: 1;
+  cursor: pointer;
+  text-align: center;
+  letter-spacing: 2px;
+}
+
+.shortcut-input.recording {
+  border-color: #4c6ef5;
+  background: rgba(76, 110, 245, 0.12);
+}
+
+.shortcut-error {
+  color: #e03131;
+  min-height: 14px;
 }
 
 select {

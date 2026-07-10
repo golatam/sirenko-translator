@@ -32,16 +32,25 @@ const POPUP_DEFAULT_HEIGHT = 320;
 const POPUP_MIN_WIDTH = 320;
 const POPUP_MIN_HEIGHT = 240;
 
+const DEFAULT_SHORTCUTS = {
+  en: "Ctrl+Command+E",
+  ru: "Ctrl+Command+R",
+  es: "Ctrl+Command+S",
+};
+
 const store = new Store({
   defaults: {
     apiKey: "",
     cloudProvider: "claude",
+    claudeModel: "claude-haiku-4-5",
+    openaiModel: "gpt-5.4-mini",
     defaultTargetLang: "en",
     lastTargetLang: null,
     enabled: true,
     translationMode: "cloud",
     popupWidth: POPUP_DEFAULT_WIDTH,
     popupHeight: POPUP_DEFAULT_HEIGHT,
+    shortcuts: DEFAULT_SHORTCUTS,
   },
 });
 
@@ -368,7 +377,7 @@ function openSettings() {
 
   settingsWindow = new BrowserWindow({
     width: 450,
-    height: 480,
+    height: 660,
     title: "Translator Settings",
     resizable: false,
     minimizable: false,
@@ -426,16 +435,16 @@ ipcMain.handle("translate", async (_event, text, targetLang) => {
       const codexToken = await getCodexToken();
       if (!codexToken) {
         currentTranslationController = null;
-        return { error: "ChatGPT not authorized. Run: codex auth login" };
+        return { error: "ChatGPT not authorized. Run `codex login` in Terminal." };
       }
-      result = await translateOpenAI(text, codexToken, targetLang, controller.signal, sendChunk);
+      result = await translateOpenAI(text, codexToken, targetLang, controller.signal, sendChunk, store.get("openaiModel"));
     } else {
       const apiKey = store.get("apiKey") || (await getKeychainToken());
       if (!apiKey) {
         currentTranslationController = null;
-        return { error: "API key not set. Please configure in Settings or run: claude auth login" };
+        return { error: "No Claude credentials. Paste an API key in Settings, or sign in to Claude Code." };
       }
-      result = await translate(text, apiKey, targetLang, controller.signal, sendChunk);
+      result = await translate(text, apiKey, targetLang, controller.signal, sendChunk, store.get("claudeModel"));
     }
     currentTranslationController = null;
     return result;
@@ -453,14 +462,19 @@ ipcMain.handle("translate", async (_event, text, targetLang) => {
 ipcMain.handle("get-settings", () => ({
   apiKey: store.get("apiKey"),
   cloudProvider: store.get("cloudProvider"),
+  claudeModel: store.get("claudeModel"),
+  openaiModel: store.get("openaiModel"),
   defaultTargetLang: store.get("defaultTargetLang"),
   enabled: store.get("enabled"),
   translationMode: store.get("translationMode"),
+  shortcuts: { ...DEFAULT_SHORTCUTS, ...(store.get("shortcuts") || {}) },
 }));
 
 ipcMain.handle("save-settings", (_event, settings) => {
   if (settings.apiKey !== undefined) store.set("apiKey", settings.apiKey);
   if (settings.cloudProvider !== undefined) store.set("cloudProvider", settings.cloudProvider);
+  if (settings.claudeModel !== undefined) store.set("claudeModel", settings.claudeModel);
+  if (settings.openaiModel !== undefined) store.set("openaiModel", settings.openaiModel);
   if (settings.defaultTargetLang !== undefined)
     store.set("defaultTargetLang", settings.defaultTargetLang);
   if (settings.translationMode !== undefined)
@@ -468,6 +482,12 @@ ipcMain.handle("save-settings", (_event, settings) => {
   if (settings.enabled !== undefined) {
     store.set("enabled", settings.enabled);
     settings.enabled ? startClipboardWatcher() : stopClipboardWatcher();
+  }
+  if (settings.shortcuts !== undefined) {
+    const merged = { ...(store.get("shortcuts") || DEFAULT_SHORTCUTS), ...settings.shortcuts };
+    store.set("shortcuts", merged);
+    const failed = registerGlobalShortcuts();
+    return { success: true, failedShortcuts: failed };
   }
   return { success: true };
 });
@@ -545,23 +565,27 @@ ipcMain.on("close-popup", () => {
 
 // ─── Global Shortcuts ───────────────────────────────────────────────────────
 
-const SHORTCUTS = {
-  "Ctrl+CommandOrControl+E": "en",
-  "Ctrl+CommandOrControl+R": "ru",
-  "Ctrl+CommandOrControl+S": "es",
-};
-
+// Register user-configured shortcuts from the store. Returns a map of
+// lang → false for accelerators that could not be registered (taken by
+// another app), so the settings UI can surface the conflict.
 function registerGlobalShortcuts() {
-  for (const [accelerator, lang] of Object.entries(SHORTCUTS)) {
+  globalShortcut.unregisterAll();
+  const shortcuts = store.get("shortcuts") || DEFAULT_SHORTCUTS;
+  const failed = {};
+
+  for (const [lang, accelerator] of Object.entries(shortcuts)) {
+    if (!accelerator) continue; // cleared by user — shortcut disabled
     const ok = globalShortcut.register(accelerator, () => {
       const text = clipboard.readText();
       if (!text || !text.trim()) return;
       showPopup(text, lang);
     });
     if (!ok) {
+      failed[lang] = accelerator;
       console.error(`[shortcut] failed to register ${accelerator} — already taken`);
     }
   }
+  return failed;
 }
 
 // ─── App Lifecycle ──────────────────────────────────────────────────────────
