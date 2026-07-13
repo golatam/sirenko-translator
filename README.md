@@ -11,8 +11,7 @@
   <a href="https://github.com/golatam/sirenko-translator/stargazers"><img src="https://img.shields.io/github/stars/golatam/sirenko-translator?style=social" alt="GitHub stars"></a>
 </p>
 
-<!-- TODO: add demo GIF here — a 5–10s screen recording of select → double Cmd+C → popup -->
-<!-- <p align="center"><img src="docs/demo.gif" width="600" alt="Demo"></p> -->
+<p align="center"><img src="docs/demo.gif" width="600" alt="Demo"></p>
 
 [Русская версия](README.ru.md)
 
