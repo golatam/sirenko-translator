@@ -14,7 +14,7 @@ const {
 const path = require("path");
 const fs = require("fs");
 const Store = require("electron-store");
-const { translate, translateOpenAI, getKeychainToken, getCodexToken, loginOpenAI } = require("./translate");
+const { translate, translateOpenAI, getKeychainToken, getCodexToken, loginOpenAI, listOpenAIModels } = require("./translate");
 const { translateLocal, downloadModels, terminateWorker } = require("./translate-local");
 const { LANGUAGES } = require("./lang-detect");
 const { checkForUpdates, scheduleUpdateChecks } = require("./updater");
@@ -45,7 +45,7 @@ const store = new Store({
     apiKey: "",
     cloudProvider: "claude",
     claudeModel: "claude-haiku-4-5",
-    openaiModel: "gpt-5.4-mini",
+    openaiModel: "gpt-5.6-luna",
     defaultTargetLang: "en",
     lastTargetLang: null,
     enabled: true,
@@ -518,6 +518,14 @@ ipcMain.handle("save-settings", (_event, settings) => {
 ipcMain.handle("get-codex-status", async () => {
   const token = await getCodexToken();
   return { authorized: !!token };
+});
+
+ipcMain.handle("get-openai-models", async () => {
+  try {
+    return { models: await listOpenAIModels() };
+  } catch (err) {
+    return { error: err.message };
+  }
 });
 
 // Dedup concurrent login attempts (e.g. a double-click on the button) so we

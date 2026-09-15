@@ -4,7 +4,8 @@ const claudeModelField = document.getElementById("claudeModelField");
 const claudeModelSelect = document.getElementById("claudeModel");
 const openaiKeyField = document.getElementById("openaiKeyField");
 const openaiModelField = document.getElementById("openaiModelField");
-const openaiModelInput = document.getElementById("openaiModel");
+const openaiModelSelect = document.getElementById("openaiModel");
+const openaiModelHint = document.getElementById("openaiModelHint");
 const shortcutInputs = Array.from(document.querySelectorAll(".shortcut-input"));
 const shortcutError = document.getElementById("shortcutError");
 const codexStatusEl = document.getElementById("codexStatus");
@@ -102,7 +103,7 @@ async function loadSettings() {
     apiKeyInput.value = settings.apiKey || "";
     claudeModelSelect.value = settings.claudeModel || "claude-haiku-4-5";
     if (!claudeModelSelect.value) claudeModelSelect.value = "claude-haiku-4-5";
-    openaiModelInput.value = settings.openaiModel || "";
+    loadOpenAIModels(settings.openaiModel || "");
     defaultLangSelect.value = settings.defaultTargetLang || "";
     updateCodexStatus();
     enabledCheckbox.checked = settings.enabled !== false;
@@ -153,18 +154,51 @@ claudeModelSelect.addEventListener("change", async () => {
   showSaved();
 });
 
-async function saveOpenAIModel() {
-  const model = openaiModelInput.value.trim() || "gpt-5.4-mini";
-  openaiModelInput.value = model;
-  await window.api.saveSettings({ openaiModel: model });
-  showSaved();
-}
-openaiModelInput.addEventListener("blur", saveOpenAIModel);
-openaiModelInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    saveOpenAIModel();
+// Populates the ChatGPT Model dropdown from the live catalog for this
+// account (see translate.js listOpenAIModels — the hardcoded model IDs this
+// used to ship with keep going stale as OpenAI retires/renames models).
+async function loadOpenAIModels(selectedSlug) {
+  openaiModelHint.textContent = "Loading available models…";
+  try {
+    const result = await window.api.getOpenAIModels();
+    if (result.error) throw new Error(result.error);
+    const models = result.models || [];
+
+    openaiModelSelect.innerHTML = "";
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = m.slug;
+      opt.textContent = m.displayName;
+      opt.title = m.description;
+      openaiModelSelect.appendChild(opt);
+    }
+
+    // A previously-saved model no longer in the live catalog (renamed or
+    // retired, like gpt-5.4-mini was) can't actually be used — fall back to
+    // the first available model instead of reproducing the same 400.
+    const stillValid = selectedSlug && models.some((m) => m.slug === selectedSlug);
+    const nextSlug = stillValid ? selectedSlug : models[0]?.slug || "";
+
+    openaiModelSelect.value = nextSlug;
+    if (nextSlug && nextSlug !== selectedSlug) {
+      await window.api.saveSettings({ openaiModel: nextSlug });
+    }
+    openaiModelHint.textContent = "Model used for ChatGPT-backend translation.";
+  } catch (err) {
+    openaiModelHint.textContent = "Couldn't load model list: " + err.message;
+    openaiModelSelect.innerHTML = "";
+    if (selectedSlug) {
+      const opt = document.createElement("option");
+      opt.value = selectedSlug;
+      opt.textContent = selectedSlug;
+      openaiModelSelect.appendChild(opt);
+    }
   }
+}
+
+openaiModelSelect.addEventListener("change", async () => {
+  await window.api.saveSettings({ openaiModel: openaiModelSelect.value });
+  showSaved();
 });
 
 // ─── Global Shortcut Recording ───────────────────────────────────────────────
@@ -267,6 +301,8 @@ openaiLoginBtn.addEventListener("click", async () => {
     if (result.error) {
       codexStatusEl.textContent = "Error: " + result.error;
       codexStatusEl.className = "codex-status err";
+    } else {
+      loadOpenAIModels(openaiModelSelect.value);
     }
   } catch {
     codexStatusEl.textContent = "Sign-in failed";

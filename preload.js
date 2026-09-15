@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("api", {
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
   getCodexStatus: () => ipcRenderer.invoke("get-codex-status"),
   loginOpenAI: () => ipcRenderer.invoke("openai-login"),
+  getOpenAIModels: () => ipcRenderer.invoke("get-openai-models"),
 
   // Popup actions
   copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),

@@ -10,7 +10,7 @@ const KEYCHAIN_SERVICE = "Claude Code-credentials";
 const TOKEN_EXPIRY_BUFFER_MS = 5 * 60 * 1000; // refresh 5 min before expiry
 
 const DEFAULT_CLAUDE_MODEL = "claude-haiku-4-5";
-const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
+const DEFAULT_OPENAI_MODEL = "gpt-5.6-luna";
 
 // ─── Cached state ───────────────────────────────────────────────────────────
 
@@ -442,6 +442,56 @@ async function forceRefreshCodexToken() {
   return cachedOpenAIOauth?.accessToken || null;
 }
 
+/**
+ * List models available on the ChatGPT backend for the signed-in account.
+ * Same endpoint Codex CLI itself uses to populate its model picker
+ * (codex-rs/model-provider/src/models_endpoint.rs) — verified live against
+ * this project's own account. `client_version` just needs to be high enough
+ * that the backend doesn't filter out models by their minimal_client_version
+ * gate; it isn't tied to any real Codex CLI release.
+ * Returns only models the account can pick from a menu (visibility "list").
+ */
+async function listOpenAIModels() {
+  const token = await getCodexToken();
+  if (!token) throw new Error("Not authorized");
+  const accountId = cachedOpenAIOauth?.accountId;
+
+  const body = await new Promise((resolve, reject) => {
+    const req = https.request(
+      {
+        hostname: "chatgpt.com",
+        path: "/backend-api/codex/models?client_version=1.0.0",
+        method: "GET",
+        headers: {
+          Authorization: "Bearer " + token,
+          originator: "codex_cli_rs",
+          ...(accountId ? { "ChatGPT-Account-ID": accountId } : {}),
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            return reject(new Error(`Failed to list models (${res.statusCode}): ${data}`));
+          }
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            reject(new Error("Failed to parse models response"));
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.end();
+  });
+
+  return (body.models || [])
+    .filter((m) => m.visibility === "list")
+    .map((m) => ({ slug: m.slug, displayName: m.display_name || m.slug, description: m.description || "" }));
+}
+
 // ─── OpenAI Sign-In (PKCE, in-app) ─────────────────────────────────────────
 //
 // Reimplements the same browser-based login `codex login` performs, so it
@@ -806,4 +856,4 @@ async function translateOpenAI(text, token, targetLang, signal, onChunk, model) 
   }
 }
 
-module.exports = { translate, translateOpenAI, detectLanguage, autoTargetLang, getKeychainToken, forceRefreshKeychainToken, getCodexToken, forceRefreshCodexToken, loginOpenAI, LANGUAGES };
+module.exports = { translate, translateOpenAI, detectLanguage, autoTargetLang, getKeychainToken, forceRefreshKeychainToken, getCodexToken, forceRefreshCodexToken, loginOpenAI, listOpenAIModels, LANGUAGES };
