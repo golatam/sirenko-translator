@@ -9,11 +9,12 @@ const {
   nativeImage,
   globalShortcut,
   dialog,
+  shell,
 } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const Store = require("electron-store");
-const { translate, translateOpenAI, getKeychainToken, getCodexToken } = require("./translate");
+const { translate, translateOpenAI, getKeychainToken, getCodexToken, loginOpenAI } = require("./translate");
 const { translateLocal, downloadModels, terminateWorker } = require("./translate-local");
 const { LANGUAGES } = require("./lang-detect");
 const { checkForUpdates, scheduleUpdateChecks } = require("./updater");
@@ -32,11 +33,12 @@ const POPUP_DEFAULT_HEIGHT = 320;
 const POPUP_MIN_WIDTH = 320;
 const POPUP_MIN_HEIGHT = 240;
 
-const DEFAULT_SHORTCUTS = {
-  en: "Ctrl+Command+E",
-  ru: "Ctrl+Command+R",
-  es: "Ctrl+Command+S",
-};
+// "Command" only exists on macOS — Electron accelerators have no Windows
+// equivalent for it, so registerGlobalShortcuts() would silently fail to
+// bind these on Windows. Use Ctrl+Alt+<key> there instead.
+const DEFAULT_SHORTCUTS = process.platform === "win32"
+  ? { en: "Ctrl+Alt+E", ru: "Ctrl+Alt+R", es: "Ctrl+Alt+S" }
+  : { en: "Ctrl+Command+E", ru: "Ctrl+Command+R", es: "Ctrl+Command+S" };
 
 const store = new Store({
   defaults: {
@@ -186,7 +188,26 @@ function handleClipboardChange(delta) {
   }
 }
 
+// Windows equivalent of NSPasteboard.changeCount. Bound once via FFI —
+// unlike the macOS path below, this is called every 150ms, and spawning
+// a subprocess (e.g. powershell.exe) that often would queue up under its
+// own ~200-400ms startup cost.
+let win32GetClipboardSequenceNumber = null;
+if (process.platform === "win32") {
+  const koffi = require("koffi");
+  const user32 = koffi.load("user32.dll");
+  win32GetClipboardSequenceNumber = user32.func("uint32_t GetClipboardSequenceNumber()");
+}
+
 function getChangeCount() {
+  if (process.platform === "win32") {
+    try {
+      return win32GetClipboardSequenceNumber();
+    } catch {
+      return -1;
+    }
+  }
+
   try {
     const { execFileSync } = require("child_process");
     const out = execFileSync(
@@ -435,7 +456,7 @@ ipcMain.handle("translate", async (_event, text, targetLang) => {
       const codexToken = await getCodexToken();
       if (!codexToken) {
         currentTranslationController = null;
-        return { error: "ChatGPT not authorized. Run `codex login` in Terminal." };
+        return { error: "ChatGPT not authorized. Open Settings and click \"Sign in with ChatGPT\"." };
       }
       result = await translateOpenAI(text, codexToken, targetLang, controller.signal, sendChunk, store.get("openaiModel"));
     } else {
@@ -499,6 +520,24 @@ ipcMain.handle("get-codex-status", async () => {
   return { authorized: !!token };
 });
 
+// Dedup concurrent login attempts (e.g. a double-click on the button) so we
+// don't pop open two browser tabs / bind the callback server twice.
+let openaiLoginInProgress = null;
+
+ipcMain.handle("openai-login", async () => {
+  if (!openaiLoginInProgress) {
+    openaiLoginInProgress = loginOpenAI({ openExternal: (url) => shell.openExternal(url) }).finally(
+      () => { openaiLoginInProgress = null; }
+    );
+  }
+  try {
+    await openaiLoginInProgress;
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
 // ─── IPC: Model Download ────────────────────────────────────────────────────
 
 ipcMain.handle("download-models", async () => {
@@ -536,12 +575,22 @@ ipcMain.handle("replace-in-app", async (_event, text) => {
   await new Promise((r) => setTimeout(r, 300));
 
   const { execFile } = require("child_process");
-  execFile("osascript", [
-    "-e",
-    'tell application "System Events" to keystroke "v" using command down',
-  ], (err) => {
-    if (err) console.error("Failed to simulate paste:", err.message);
-  });
+  if (process.platform === "win32") {
+    execFile("powershell.exe", [
+      "-NoProfile",
+      "-Command",
+      "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^v')",
+    ], (err) => {
+      if (err) console.error("Failed to simulate paste:", err.message);
+    });
+  } else {
+    execFile("osascript", [
+      "-e",
+      'tell application "System Events" to keystroke "v" using command down',
+    ], (err) => {
+      if (err) console.error("Failed to simulate paste:", err.message);
+    });
+  }
 
   return { success: true };
 });

@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("api", {
+  platform: process.platform,
+
   // Translation
   translate: (text, targetLang) =>
     ipcRenderer.invoke("translate", text, targetLang),
@@ -9,6 +11,7 @@ contextBridge.exposeInMainWorld("api", {
   getSettings: () => ipcRenderer.invoke("get-settings"),
   saveSettings: (settings) => ipcRenderer.invoke("save-settings", settings),
   getCodexStatus: () => ipcRenderer.invoke("get-codex-status"),
+  loginOpenAI: () => ipcRenderer.invoke("openai-login"),
 
   // Popup actions
   copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),

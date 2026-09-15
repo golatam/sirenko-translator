@@ -11,13 +11,15 @@
     "dmg": "electron-builder --mac dmg --arm64",
     "dmg:x64": "electron-builder --mac dmg --x64",
     "deploy": "electron-builder --mac --dir --arm64 && rm -rf /Applications/Translator.app && cp -R dist/mac-arm64/Translator.app /Applications/Translator.app && echo '✓ Installed to /Applications/Translator.app'",
+    "dist:win": "electron-builder --win portable --x64",
     "build:update:js": "node scripts/build-update.js js",
     "build:update:full": "electron-builder --mac --dir --arm64 && node scripts/build-update.js full"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@xenova/transformers": "^2.17.2",
-    "electron-store": "^8.2.0"
+    "electron-store": "^8.2.0",
+    "koffi": "^3.1.1"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -43,6 +45,11 @@
       "category": "public.app-category.productivity",
       "target": "dir",
       "identity": null,
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": "portable",
+      "icon": "build/icon-1024.png",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "asar": false

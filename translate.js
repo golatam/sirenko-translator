@@ -19,10 +19,27 @@ let cachedClient = null;
 let cachedClientKey = null;
 let refreshInProgress = null; // dedup concurrent refreshes
 
+// On Windows, Claude Code CLI has no Keychain to piggyback on — it stores
+// the same {claudeAiOauth: {accessToken, refreshToken, expiresAt}} shape
+// as a plain JSON file instead.
+function win32CredentialsPath() {
+  const path = require("path");
+  const os = require("os");
+  return path.join(
+    process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"),
+    ".credentials.json"
+  );
+}
+
 /**
- * Read raw credentials JSON from macOS Keychain.
+ * Read raw credentials JSON from macOS Keychain (or its Windows file equivalent).
  */
 async function readKeychainCredentials() {
+  if (process.platform === "win32") {
+    const fs = require("fs");
+    return JSON.parse(fs.readFileSync(win32CredentialsPath(), "utf-8"));
+  }
+
   const raw = await new Promise((resolve, reject) => {
     execFile(
       "security",
@@ -35,9 +52,15 @@ async function readKeychainCredentials() {
 }
 
 /**
- * Write updated credentials back to macOS Keychain.
+ * Write updated credentials back to macOS Keychain (or its Windows file equivalent).
  */
 async function writeKeychainCredentials(credentials) {
+  if (process.platform === "win32") {
+    const fs = require("fs");
+    fs.writeFileSync(win32CredentialsPath(), JSON.stringify(credentials));
+    return;
+  }
+
   const json = JSON.stringify(credentials);
   // Delete old entry, then add new one
   await new Promise((resolve) => {
@@ -271,10 +294,18 @@ async function translate(text, apiKey, targetLang, signal, onChunk, model) {
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const http = require("http");
+const crypto = require("crypto");
 
 const CODEX_AUTH_PATH = path.join(os.homedir(), ".codex", "auth.json");
 const OPENAI_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token";
+const OPENAI_OAUTH_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
+// Same loopback ports (and fallback) the Codex CLI registers as redirect_uri
+// with OpenAI — https://github.com/openai/codex codex-rs/login/src/server.rs.
+const OPENAI_LOGIN_PORT = 1455;
+const OPENAI_LOGIN_FALLBACK_PORT = 1457;
+const OPENAI_LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 
 let cachedOpenAIOauth = undefined; // { accessToken, refreshToken, expiresAt, accountId }
 let openaiRefreshInProgress = null;
@@ -409,6 +440,231 @@ async function forceRefreshCodexToken() {
   if (!cachedOpenAIOauth?.refreshToken) return null;
   await doOpenAIRefresh();
   return cachedOpenAIOauth?.accessToken || null;
+}
+
+// ─── OpenAI Sign-In (PKCE, in-app) ─────────────────────────────────────────
+//
+// Reimplements the same browser-based login `codex login` performs, so it
+// can be triggered from a Settings button instead of a terminal. Parameters
+// (ports, scopes, claim paths) are taken from the Codex CLI's own source
+// (codex-rs/login), not guessed — see OPENAI_LOGIN_PORT above.
+
+function base64url(buffer) {
+  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodeJwtPayload(jwt) {
+  return JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf-8"));
+}
+
+function buildOpenAIAuthorizeUrl({ redirectUri, challenge, state }) {
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: OPENAI_OAUTH_CLIENT_ID,
+    redirect_uri: redirectUri,
+    scope: "openid profile email offline_access api.connectors.read api.connectors.invoke",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    id_token_add_organizations: "true",
+    codex_cli_simplified_flow: "true",
+    state,
+    originator: "codex_cli_rs",
+  });
+  return `${OPENAI_OAUTH_AUTHORIZE_URL}?${params.toString()}`;
+}
+
+/**
+ * Exchange an authorization code for tokens (grant_type=authorization_code).
+ */
+async function exchangeOpenAICode({ code, verifier, redirectUri }) {
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: redirectUri,
+    client_id: OPENAI_OAUTH_CLIENT_ID,
+    code_verifier: verifier,
+  }).toString();
+
+  return new Promise((resolve, reject) => {
+    const url = new URL(OPENAI_OAUTH_TOKEN_URL);
+    const req = https.request(
+      {
+        hostname: url.hostname,
+        path: url.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = "";
+        res.on("data", (chunk) => (data += chunk));
+        res.on("end", () => {
+          if (res.statusCode !== 200) {
+            return reject(new Error(`OpenAI token exchange failed (${res.statusCode}): ${data}`));
+          }
+          try {
+            resolve(JSON.parse(data));
+          } catch {
+            reject(new Error("Failed to parse OpenAI token exchange response"));
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+/**
+ * Bind the loopback callback server, trying the Codex CLI's default port
+ * first and its documented fallback second (e.g. if a real `codex login` is
+ * already running).
+ */
+async function bindOpenAILoginServer() {
+  for (const port of [OPENAI_LOGIN_PORT, OPENAI_LOGIN_FALLBACK_PORT]) {
+    const server = http.createServer();
+    try {
+      await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", resolve);
+      });
+      server.removeAllListeners("error");
+      return { server, port };
+    } catch (err) {
+      server.close();
+      if (err.code !== "EADDRINUSE") throw err;
+    }
+  }
+  throw new Error("Could not start local sign-in server (ports 1455 and 1457 are both busy)");
+}
+
+function loginPage(ok) {
+  return (
+    `<html><body style="font-family:-apple-system,sans-serif;text-align:center;margin-top:4rem">` +
+    (ok
+      ? "<h2>Signed in ✓</h2><p>You can close this tab and return to Translator.</p>"
+      : "<h2>Sign-in failed</h2><p>You can close this tab and try again in Translator.</p>") +
+    `</body></html>`
+  );
+}
+
+/**
+ * Full re-write of ~/.codex/auth.json after a fresh login (as opposed to
+ * writeCodexAuth's in-place refresh), so it also lands account_id and works
+ * even if the file didn't exist yet. Keeps the exact shape Codex CLI itself
+ * reads/writes, so `codex` on the machine keeps working too.
+ */
+function writeCodexAuthFull(oauth, idToken) {
+  let data = {};
+  try {
+    data = JSON.parse(fs.readFileSync(CODEX_AUTH_PATH, "utf-8"));
+  } catch { /* no existing file — first-time sign-in */ }
+
+  data.tokens = data.tokens || {};
+  data.tokens.id_token = idToken;
+  data.tokens.access_token = oauth.accessToken;
+  data.tokens.refresh_token = oauth.refreshToken;
+  data.tokens.account_id = oauth.accountId;
+  data.last_refresh = new Date().toISOString();
+
+  fs.mkdirSync(path.dirname(CODEX_AUTH_PATH), { recursive: true });
+  fs.writeFileSync(CODEX_AUTH_PATH, JSON.stringify(data, null, 2), "utf-8");
+}
+
+/**
+ * Run the full OpenAI sign-in flow: opens the system browser to
+ * auth.openai.com, waits for the loopback redirect, exchanges the code for
+ * tokens, and writes them to ~/.codex/auth.json. Updates the in-memory
+ * token cache immediately so a translation works right after this resolves,
+ * with no app restart needed.
+ *
+ * @param {{ openExternal: (url: string) => any }} deps - injected so this
+ *   module doesn't need to depend on Electron directly.
+ */
+async function loginOpenAI({ openExternal }) {
+  const { server, port } = await bindOpenAILoginServer();
+  const redirectUri = `http://localhost:${port}/auth/callback`;
+  const verifier = base64url(crypto.randomBytes(64));
+  const challenge = base64url(crypto.createHash("sha256").update(verifier).digest());
+  const state = base64url(crypto.randomBytes(32));
+
+  const codePromise = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      server.close();
+      reject(new Error("Sign-in timed out — please try again"));
+    }, OPENAI_LOGIN_TIMEOUT_MS);
+
+    server.on("request", (req, res) => {
+      let url;
+      try {
+        url = new URL(req.url, redirectUri);
+      } catch {
+        res.writeHead(400).end();
+        return;
+      }
+      if (url.pathname !== "/auth/callback") {
+        res.writeHead(404).end();
+        return;
+      }
+
+      const error = url.searchParams.get("error");
+      const returnedState = url.searchParams.get("state");
+      const authCode = url.searchParams.get("code");
+      const ok = !error && returnedState === state && !!authCode;
+
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(loginPage(ok));
+
+      clearTimeout(timer);
+      server.close();
+
+      if (!ok) {
+        reject(new Error(error ? `OpenAI sign-in error: ${error}` : "OpenAI sign-in state mismatch"));
+      } else {
+        resolve(authCode);
+      }
+    });
+
+    server.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  }).catch((err) => {
+    server.close();
+    throw err;
+  });
+
+  // Open the browser only after the callback listener is armed — awaiting
+  // codePromise before this point would deadlock forever waiting for a
+  // redirect nothing ever triggered.
+  const authorizeUrl = buildOpenAIAuthorizeUrl({ redirectUri, challenge, state });
+  await openExternal(authorizeUrl);
+
+  const code = await codePromise;
+  const tokens = await exchangeOpenAICode({ code, verifier, redirectUri });
+
+  let accountId = null;
+  try {
+    accountId = decodeJwtPayload(tokens.id_token)["https://api.openai.com/auth"]?.chatgpt_account_id || null;
+  } catch { /* leave accountId null — most requests still work without it */ }
+
+  let expiresAt = null;
+  try {
+    expiresAt = decodeJwtPayload(tokens.access_token).exp * 1000;
+  } catch { /* leave expiresAt null — treated as never-expiring until a 401 */ }
+
+  cachedOpenAIOauth = {
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    accountId,
+    expiresAt,
+  };
+  writeCodexAuthFull(cachedOpenAIOauth, tokens.id_token);
+
+  return { accountId };
 }
 
 /**
@@ -550,4 +806,4 @@ async function translateOpenAI(text, token, targetLang, signal, onChunk, model) 
   }
 }
 
-module.exports = { translate, translateOpenAI, detectLanguage, autoTargetLang, getKeychainToken, forceRefreshKeychainToken, getCodexToken, forceRefreshCodexToken, LANGUAGES };
+module.exports = { translate, translateOpenAI, detectLanguage, autoTargetLang, getKeychainToken, forceRefreshKeychainToken, getCodexToken, forceRefreshCodexToken, loginOpenAI, LANGUAGES };

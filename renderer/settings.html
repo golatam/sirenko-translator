@@ -52,7 +52,8 @@
     <div class="field" id="openaiKeyField" style="display: none;">
       <label>ChatGPT Authorization</label>
       <div id="codexStatus" class="codex-status">Checking...</div>
-      <p class="hint">Uses your ChatGPT Plus subscription via the Codex CLI. Run <code>codex login</code> in Terminal to authorize.</p>
+      <button type="button" id="openaiLoginBtn" class="download-btn">Sign in with ChatGPT</button>
+      <p class="hint">Uses your ChatGPT Plus subscription. Opens your browser to sign in.</p>
     </div>
 
     <div class="field" id="openaiModelField" style="display: none;">
@@ -76,7 +77,7 @@
         <input type="checkbox" id="enabled">
         <span>Enable clipboard watcher</span>
       </label>
-      <p class="hint">Double Cmd+C triggers translation popup.</p>
+      <p class="hint" id="doubleCopyHint">Double Cmd+C triggers translation popup.</p>
     </div>
 
     <div class="field">

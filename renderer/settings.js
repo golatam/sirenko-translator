@@ -8,6 +8,7 @@ const openaiModelInput = document.getElementById("openaiModel");
 const shortcutInputs = Array.from(document.querySelectorAll(".shortcut-input"));
 const shortcutError = document.getElementById("shortcutError");
 const codexStatusEl = document.getElementById("codexStatus");
+const openaiLoginBtn = document.getElementById("openaiLoginBtn");
 const cloudProviderField = document.getElementById("cloudProviderField");
 const providerClaudeBtn = document.getElementById("providerClaude");
 const providerOpenAIBtn = document.getElementById("providerOpenAI");
@@ -17,6 +18,10 @@ const statusEl = document.getElementById("status");
 const modeLocalBtn = document.getElementById("modeLocal");
 const modeCloudBtn = document.getElementById("modeCloud");
 const modeHint = document.getElementById("modeHint");
+const doubleCopyHint = document.getElementById("doubleCopyHint");
+if (doubleCopyHint && window.api.platform !== "darwin") {
+  doubleCopyHint.textContent = "Double Ctrl+C triggers translation popup.";
+}
 
 const modelSection = document.getElementById("modelSection");
 const downloadBtn = document.getElementById("downloadBtn");
@@ -171,7 +176,7 @@ function eventToAccelerator(e) {
   if (e.ctrlKey) mods.push("Ctrl");
   if (e.altKey) mods.push("Alt");
   if (e.shiftKey) mods.push("Shift");
-  if (e.metaKey) mods.push("Command");
+  if (e.metaKey) mods.push(window.api.platform === "darwin" ? "Command" : "Super");
   if (!e.ctrlKey && !e.altKey && !e.metaKey) return null;
 
   let key = e.key;
@@ -192,6 +197,7 @@ function prettyAccelerator(acc) {
     .replace("Alt", "⌥")
     .replace("Shift", "⇧")
     .replace("Command", "⌘")
+    .replace("Super", "Win")
     .replace(/\+/g, "");
 }
 
@@ -243,11 +249,33 @@ async function updateCodexStatus() {
     const status = await window.api.getCodexStatus();
     codexStatusEl.textContent = status.authorized ? "Authorized ✓" : "Not authorized";
     codexStatusEl.className = "codex-status " + (status.authorized ? "ok" : "err");
+    openaiLoginBtn.textContent = status.authorized ? "Re-authorize" : "Sign in with ChatGPT";
   } catch {
     codexStatusEl.textContent = "Unknown";
     codexStatusEl.className = "codex-status err";
   }
 }
+
+openaiLoginBtn.addEventListener("click", async () => {
+  openaiLoginBtn.disabled = true;
+  openaiLoginBtn.textContent = "Opening browser…";
+  codexStatusEl.textContent = "Waiting for sign-in in your browser…";
+  codexStatusEl.className = "codex-status";
+
+  try {
+    const result = await window.api.loginOpenAI();
+    if (result.error) {
+      codexStatusEl.textContent = "Error: " + result.error;
+      codexStatusEl.className = "codex-status err";
+    }
+  } catch {
+    codexStatusEl.textContent = "Sign-in failed";
+    codexStatusEl.className = "codex-status err";
+  } finally {
+    openaiLoginBtn.disabled = false;
+    await updateCodexStatus();
+  }
+});
 
 // ─── Model Download ──────────────────────────────────────────────────────────
 

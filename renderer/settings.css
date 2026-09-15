@@ -236,6 +236,10 @@ select {
   border-color: rgba(224, 49, 49, 0.3);
 }
 
+#openaiLoginBtn {
+  margin-top: 8px;
+}
+
 code {
   background: rgba(255, 255, 255, 0.1);
   padding: 2px 6px;
