@@ -622,6 +622,13 @@ ipcMain.on("close-popup", () => {
 
 // ─── Global Shortcuts ───────────────────────────────────────────────────────
 
+// globalShortcut binds to the OS-level key-down event, so holding the
+// accelerator a beat longer than a quick tap lets the OS's own key-repeat
+// fire the callback again for what the user experiences as a single press.
+// Ignore re-fires that land within this window of the last one.
+const SHORTCUT_REFIRE_GUARD_MS = 400;
+let lastShortcutFireTime = 0;
+
 // Register user-configured shortcuts from the store. Returns a map of
 // lang → false for accelerators that could not be registered (taken by
 // another app), so the settings UI can surface the conflict.
@@ -633,6 +640,10 @@ function registerGlobalShortcuts() {
   for (const [lang, accelerator] of Object.entries(shortcuts)) {
     if (!accelerator) continue; // cleared by user — shortcut disabled
     const ok = globalShortcut.register(accelerator, () => {
+      const now = Date.now();
+      if (now - lastShortcutFireTime < SHORTCUT_REFIRE_GUARD_MS) return;
+      lastShortcutFireTime = now;
+
       const text = clipboard.readText();
       if (!text || !text.trim()) return;
       showPopup(text, lang);
