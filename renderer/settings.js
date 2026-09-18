@@ -26,6 +26,14 @@ if (doubleCopyHint && window.api.platform !== "darwin") {
   doubleCopyHint.textContent = "Double Ctrl+C triggers translation popup.";
 }
 
+const doubleCopyKeySelect = document.getElementById("doubleCopyKey");
+for (const letter of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+  const opt = document.createElement("option");
+  opt.value = letter;
+  opt.textContent = (window.api.platform === "darwin" ? "Cmd+" : "Ctrl+") + letter;
+  doubleCopyKeySelect.appendChild(opt);
+}
+
 const modelSection = document.getElementById("modelSection");
 const downloadBtn = document.getElementById("downloadBtn");
 const downloadStatus = document.getElementById("downloadStatus");
@@ -121,6 +129,7 @@ async function loadSettings() {
     defaultLangSelect.value = settings.defaultTargetLang || "";
     updateCodexStatus();
     enabledCheckbox.checked = settings.enabled !== false;
+    doubleCopyKeySelect.value = settings.doubleCopyKey || "C";
     refreshAccessibilityStatus(settings.accessibility);
     setProvider(settings.cloudProvider || "claude");
     setMode(settings.translationMode || "cloud");
@@ -145,6 +154,11 @@ defaultLangSelect.addEventListener("change", async () => {
 
 enabledCheckbox.addEventListener("change", async () => {
   await window.api.saveSettings({ enabled: enabledCheckbox.checked });
+  showSaved();
+});
+
+doubleCopyKeySelect.addEventListener("change", async () => {
+  await window.api.saveSettings({ doubleCopyKey: doubleCopyKeySelect.value });
   showSaved();
 });
 

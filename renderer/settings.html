@@ -79,7 +79,13 @@
       </label>
       <p class="hint" id="doubleCopyHint">Double Cmd+C triggers translation popup.</p>
       <p class="hint codex-status err" id="accessibilityHint" style="display: none;"></p>
-      <button type="button" id="accessibilityBtn" class="download-btn" style="display: none;">Open Accessibility Settings…</button>
+      <button type="button" id="accessibilityBtn" class="download-btn" style="display: none; margin-top: 8px;">Open Accessibility Settings…</button>
+
+      <div class="doubleCopyKeyRow" style="margin-top: 8px;">
+        <label for="doubleCopyKey" style="font-size: 12px;">Copy key</label>
+        <select id="doubleCopyKey"></select>
+      </div>
+      <p class="hint" id="doubleCopyKeyHint">Which letter counts as your system's copy shortcut. Only matters with Accessibility access granted — the fallback mode reacts to any copy, regardless of key.</p>
     </div>
 
     <div class="field">

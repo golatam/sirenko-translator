@@ -1,4 +1,4 @@
-const { clipboard, systemPreferences, shell } = require("electron");
+const { clipboard, systemPreferences, shell, screen } = require("electron");
 
 // Double-Cmd+C window. See handlePollingChange for why 1000ms/50ms.
 const DOUBLE_COPY_MAX_MS = 1000;
@@ -11,6 +11,7 @@ const CLIPBOARD_SETTLE_DELAY_MS = 80;
 
 let mode = null; // 'uiohook' | 'polling' | null (not started)
 let onDoubleCopy = null;
+let activeKey = "C"; // uiohook mode only — which letter counts as the copy key
 
 // ─── Accessibility (macOS only — always "trusted" elsewhere) ───────────────
 
@@ -39,7 +40,7 @@ function startUiohookMode() {
 
   const onKeydown = (e) => {
     const isPlainCopyCombo =
-      e.keycode === UiohookKey.C &&
+      e.keycode === (UiohookKey[activeKey] ?? UiohookKey.C) &&
       !e.shiftKey &&
       !e.altKey &&
       (process.platform === "darwin"
@@ -50,9 +51,13 @@ function startUiohookMode() {
     const now = Date.now();
     if (firstPressAt && now - firstPressAt <= DOUBLE_COPY_MAX_MS) {
       firstPressAt = 0;
+      // Capture where the cursor is *now* — resolveAuth() and the settle
+      // delay below can take an unpredictable moment, during which the user
+      // may have already moved on to another display.
+      const cursorPoint = screen.getCursorScreenPoint();
       setTimeout(() => {
         const text = clipboard.readText();
-        if (text && text.trim()) onDoubleCopy(text);
+        if (text && text.trim()) onDoubleCopy(text, cursorPoint);
       }, CLIPBOARD_SETTLE_DELAY_MS);
     } else {
       firstPressAt = now;
@@ -115,7 +120,7 @@ function handlePollingChange(delta) {
   if (delta >= 2 && text === lastCopyText && text !== "") {
     lastCopyTime = 0;
     lastCopyText = "";
-    onDoubleCopy(text);
+    onDoubleCopy(text, screen.getCursorScreenPoint());
     return;
   }
 
@@ -132,7 +137,7 @@ function handlePollingChange(delta) {
     sameSelection
   ) {
     lastCopyText = "";
-    onDoubleCopy(text);
+    onDoubleCopy(text, screen.getCursorScreenPoint());
   }
 }
 
@@ -157,8 +162,9 @@ function stopPollingMode() {
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
-function start(callback) {
+function start(callback, key) {
   onDoubleCopy = callback;
+  activeKey = key || "C";
   if (process.platform === "darwin" && !isAccessibilityTrusted()) {
     startPollingMode();
   } else {
@@ -171,6 +177,13 @@ function stop() {
   stopPollingMode();
   mode = null;
   onDoubleCopy = null;
+}
+
+// Changes the copy key on the fly (uiohook mode reads activeKey per event,
+// so no restart needed). No effect in polling mode, which detects a double
+// copy purely from clipboard changes regardless of which key produced it.
+function setKey(key) {
+  activeKey = key || "C";
 }
 
 // Re-check Accessibility trust and switch mode if it changed while running
@@ -198,6 +211,7 @@ module.exports = {
   start,
   stop,
   syncMode,
+  setKey,
   ignoreOwnWrite,
   isAccessibilityTrusted,
   requestAccessibilityAccess,

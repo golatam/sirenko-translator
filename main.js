@@ -54,6 +54,7 @@ const store = new Store({
     popupWidth: POPUP_DEFAULT_WIDTH,
     popupHeight: POPUP_DEFAULT_HEIGHT,
     shortcuts: DEFAULT_SHORTCUTS,
+    doubleCopyKey: "C",
   },
 });
 
@@ -118,7 +119,7 @@ function createTray() {
       checked: store.get("enabled"),
       click: (item) => {
         store.set("enabled", item.checked);
-        item.checked ? doubleCopy.start(onDoubleCopy) : doubleCopy.stop();
+        item.checked ? doubleCopy.start(onDoubleCopy, store.get("doubleCopyKey")) : doubleCopy.stop();
       },
     },
     { label: "Settings...", click: () => openSettings() },
@@ -158,7 +159,7 @@ async function resolveAuth() {
   }
 }
 
-async function onDoubleCopy(text) {
+async function onDoubleCopy(text, cursorPoint) {
   if (!text || !text.trim()) return;
 
   const auth = await resolveAuth();
@@ -173,7 +174,7 @@ async function onDoubleCopy(text) {
     return;
   }
 
-  showPopup(text, null, true);
+  showPopup(text, null, true, cursorPoint);
 }
 
 // ─── Popup Window ───────────────────────────────────────────────────────────
@@ -228,9 +229,9 @@ function createPopupWindow() {
   });
 }
 
-function showPopup(text, targetLangOverride, autoTranslate) {
-  const cursorPoint = screen.getCursorScreenPoint();
-  const display = screen.getDisplayNearestPoint(cursorPoint);
+function showPopup(text, targetLangOverride, autoTranslate, cursorPoint) {
+  const point = cursorPoint || screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(point);
   const { workArea } = display;
 
   if (!popupWindow || popupWindow.isDestroyed()) {
@@ -239,8 +240,8 @@ function showPopup(text, targetLangOverride, autoTranslate) {
 
   const [popupWidth, popupHeight] = popupWindow.getSize();
 
-  let x = cursorPoint.x - popupWidth / 2;
-  let y = cursorPoint.y + 20;
+  let x = point.x - popupWidth / 2;
+  let y = point.y + 20;
   x = Math.max(workArea.x, Math.min(x, workArea.x + workArea.width - popupWidth));
   y = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - popupHeight));
 
@@ -375,6 +376,7 @@ ipcMain.handle("get-settings", () => ({
   enabled: store.get("enabled"),
   translationMode: store.get("translationMode"),
   shortcuts: { ...DEFAULT_SHORTCUTS, ...(store.get("shortcuts") || {}) },
+  doubleCopyKey: store.get("doubleCopyKey") || "C",
   accessibility: { trusted: doubleCopy.isAccessibilityTrusted(), mode: doubleCopy.getMode() },
 }));
 
@@ -394,7 +396,11 @@ ipcMain.handle("save-settings", (_event, settings) => {
     store.set("translationMode", settings.translationMode);
   if (settings.enabled !== undefined) {
     store.set("enabled", settings.enabled);
-    settings.enabled ? doubleCopy.start(onDoubleCopy) : doubleCopy.stop();
+    settings.enabled ? doubleCopy.start(onDoubleCopy, store.get("doubleCopyKey")) : doubleCopy.stop();
+  }
+  if (settings.doubleCopyKey !== undefined) {
+    store.set("doubleCopyKey", settings.doubleCopyKey);
+    doubleCopy.setKey(settings.doubleCopyKey);
   }
   if (settings.shortcuts !== undefined) {
     const merged = { ...(store.get("shortcuts") || DEFAULT_SHORTCUTS), ...settings.shortcuts };
@@ -557,7 +563,7 @@ app.whenReady().then(async () => {
   createPopupWindow();
 
   if (store.get("enabled")) {
-    doubleCopy.start(onDoubleCopy);
+    doubleCopy.start(onDoubleCopy, store.get("doubleCopyKey"));
   }
 
   registerGlobalShortcuts();
