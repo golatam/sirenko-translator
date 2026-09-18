@@ -71,37 +71,9 @@ let currentTranslationController = null;
 // ─── Tray Icon ──────────────────────────────────────────────────────────────
 
 function createTrayIcon() {
-  const width = 16;
-  const height = 16;
-
-  const pixels = [
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
-    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-  ];
-
-  const rawData = Buffer.alloc(width * height * 4);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      rawData[idx + 3] = pixels[y][x] ? 255 : 0;
-    }
-  }
-
-  const img = nativeImage.createFromBitmap(rawData, { width, height });
+  // @2x variant (build/trayTemplate@2x.png) is picked up automatically for
+  // Retina displays. Regenerate both via `npm run tray-icon`.
+  const img = nativeImage.createFromPath(path.join(__dirname, "build", "trayTemplate.png"));
   img.setTemplateImage(true);
   return img;
 }

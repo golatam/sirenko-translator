@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron .",
     "icon": "electron scripts/make-icon.js",
+    "tray-icon": "electron scripts/make-tray-icon.js",
     "dist": "electron-builder --mac --dir --arm64",
     "dist:x64": "electron-builder --mac --dir --x64",
     "dmg": "electron-builder --mac dmg --arm64",
@@ -35,7 +36,8 @@
       "!.git/**",
       "!docs/**",
       "!.github/**",
-      "!scripts/make-icon.js"
+      "!scripts/make-icon.js",
+      "!scripts/make-tray-icon.js"
     ],
     "asarUnpack": [
       "node_modules/@xenova/**",
