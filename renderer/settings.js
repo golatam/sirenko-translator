@@ -15,6 +15,8 @@ const providerClaudeBtn = document.getElementById("providerClaude");
 const providerOpenAIBtn = document.getElementById("providerOpenAI");
 const defaultLangSelect = document.getElementById("defaultLang");
 const enabledCheckbox = document.getElementById("enabled");
+const accessibilityHint = document.getElementById("accessibilityHint");
+const accessibilityBtn = document.getElementById("accessibilityBtn");
 const statusEl = document.getElementById("status");
 const modeLocalBtn = document.getElementById("modeLocal");
 const modeCloudBtn = document.getElementById("modeCloud");
@@ -96,6 +98,18 @@ providerOpenAIBtn.addEventListener("click", async () => {
   showSaved();
 });
 
+// Precise double-Cmd+C detection needs Accessibility access on macOS; without
+// it the app falls back to the older, less reliable clipboard-polling method.
+function refreshAccessibilityStatus(accessibility) {
+  const needsPermission = window.api.platform === "darwin" && accessibility && !accessibility.trusted;
+  accessibilityHint.style.display = needsPermission ? "" : "none";
+  accessibilityBtn.style.display = needsPermission ? "" : "none";
+  if (needsPermission) {
+    accessibilityHint.textContent =
+      "Точное определение двойного Cmd+C требует доступа Accessibility. Сейчас работает резервный, менее точный режим.";
+  }
+}
+
 // Load current settings
 async function loadSettings() {
   try {
@@ -107,6 +121,7 @@ async function loadSettings() {
     defaultLangSelect.value = settings.defaultTargetLang || "";
     updateCodexStatus();
     enabledCheckbox.checked = settings.enabled !== false;
+    refreshAccessibilityStatus(settings.accessibility);
     setProvider(settings.cloudProvider || "claude");
     setMode(settings.translationMode || "cloud");
 
@@ -131,6 +146,20 @@ defaultLangSelect.addEventListener("change", async () => {
 enabledCheckbox.addEventListener("change", async () => {
   await window.api.saveSettings({ enabled: enabledCheckbox.checked });
   showSaved();
+});
+
+accessibilityBtn.addEventListener("click", async () => {
+  await window.api.openAccessibilitySettings();
+  setTimeout(async () => {
+    const settings = await window.api.getSettings();
+    refreshAccessibilityStatus(settings.accessibility);
+  }, 1000);
+});
+
+// Refresh after the user comes back from System Settings.
+window.addEventListener("focus", async () => {
+  const settings = await window.api.getSettings();
+  refreshAccessibilityStatus(settings.accessibility);
 });
 
 // API key saves on blur (not every keystroke) or Enter

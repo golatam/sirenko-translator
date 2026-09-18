@@ -21,7 +21,7 @@ Switching to a browser tab just to translate a sentence breaks your flow. Transl
 
 ## Features
 
-- **Double `Cmd+C` trigger** — works in any app, no Accessibility permissions required
+- **Double `Cmd+C` trigger** — works in any app; precise with Accessibility access granted, falls back to a less exact clipboard-based heuristic without it
 - **Popup at your cursor** — appears where you're looking, follows you across Spaces and fullscreen apps
 - **Streaming output** — translation appears word by word, like in a chat
 - **Three translation backends:**
@@ -109,13 +109,14 @@ Maintainer docs — release process, auto-update internals, and the ASAR workaro
 
 ## How it works
 
-- `main.js` — Electron main process: tray, popup and settings windows, clipboard watcher, global shortcuts.
+- `main.js` — Electron main process: tray, popup and settings windows, global shortcuts.
+- `double-copy.js` — double-`Cmd+C` detection: real keydown events via `uiohook-napi`, with a clipboard-polling fallback when Accessibility access isn't granted.
 - `translate.js` — cloud backends (Claude via the official SDK, ChatGPT via SSE streaming) with OAuth token auto-refresh.
 - `translate-local.js` + `translate-local-worker.js` — offline translation in a worker thread so the UI never blocks.
 - `lang-detect.js` — supported languages and source-language auto-detection heuristics.
 - `updater.js` — self-update from GitHub Releases: lightweight JS-only patches (~KBs) or full-app swaps.
 
-The double-`Cmd+C` detection is the fun part: macOS doesn't let you intercept `Cmd+C` globally without Accessibility permissions, so the app polls `NSPasteboard.changeCount` every 150 ms instead. Every `Cmd+C` bumps the counter even when the copied text is identical — two bumps with matching text within a second means "translate this".
+The double-`Cmd+C` detection is the fun part: with Accessibility access granted, `double-copy.js` listens for real keydown events via `uiohook-napi` (a passive, listen-only hook — it never swallows the keystroke, so `Cmd+C` still works normally everywhere) and fires on two `Cmd+C` presses within a second. Without Accessibility access, a purely clipboard-based fallback takes over: it polls `NSPasteboard.changeCount` every 150 ms and treats two bumps with matching text within a second as "translate this" — good enough, but occasionally misfires on things that write to the clipboard without an actual `Cmd+C` (e.g. a terminal with "copy on select" plus Universal Clipboard).
 
 ## Limitations
 

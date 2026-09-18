@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("api", {
   getCodexStatus: () => ipcRenderer.invoke("get-codex-status"),
   loginOpenAI: () => ipcRenderer.invoke("openai-login"),
   getOpenAIModels: () => ipcRenderer.invoke("get-openai-models"),
+  openAccessibilitySettings: () => ipcRenderer.invoke("open-accessibility-settings"),
 
   // Popup actions
   copyToClipboard: (text) => ipcRenderer.invoke("copy-to-clipboard", text),

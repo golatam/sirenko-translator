@@ -18,6 +18,7 @@ const { translate, translateOpenAI, getKeychainToken, getCodexToken, loginOpenAI
 const { translateLocal, downloadModels, terminateWorker } = require("./translate-local");
 const { LANGUAGES } = require("./lang-detect");
 const { checkForUpdates, scheduleUpdateChecks } = require("./updater");
+const doubleCopy = require("./double-copy");
 
 // ─── Single Instance Lock ───────────────────────────────────────────────────
 
@@ -62,23 +63,6 @@ let tray = null;
 let popupWindow = null;
 let settingsWindow = null;
 let popupBusy = false;
-
-// Clipboard watcher
-let lastCopyTime = 0;
-let lastCopyText = "";
-let clipboardWatcherProcess = null;
-let clipboardPollTimer = null;
-let lastChangeCount = -1;
-let ignoreClipboardUntil = 0;
-
-// Double-Cmd+C window. The clipboard is polled every 150ms (see
-// startClipboardWatcher), so two presses can land in adjacent ticks
-// with ~300ms between handleClipboardChange calls even when the user
-// double-taps cleanly. The upper bound must comfortably exceed that;
-// false matches from two unrelated copies are filtered by the
-// sameSelection check below, not by the window.
-const DOUBLE_COPY_MAX_MS = 1000;
-const DOUBLE_COPY_MIN_MS = 50;
 
 // Translation cancellation
 let currentTranslationController = null;
@@ -134,7 +118,7 @@ function createTray() {
       checked: store.get("enabled"),
       click: (item) => {
         store.set("enabled", item.checked);
-        item.checked ? startClipboardWatcher() : stopClipboardWatcher();
+        item.checked ? doubleCopy.start(onDoubleCopy) : doubleCopy.stop();
       },
     },
     { label: "Settings...", click: () => openSettings() },
@@ -149,109 +133,9 @@ function createTray() {
   tray.setContextMenu(contextMenu);
 }
 
-// ─── Clipboard Watcher (with JS fallback) ───────────────────────────────────
-
-function markOwnClipboardWrite() {
-  ignoreClipboardUntil = Date.now() + 500;
-}
-
-function handleClipboardChange(delta) {
-  if (Date.now() < ignoreClipboardUntil) return;
-
-  const text = clipboard.readText();
-
-  // Two Cmd+C presses may land inside one poll window (delta >= 2).
-  // But some apps also bump changeCount by 2 for a single copy
-  // (clearContents + writeObjects), so only trust delta >= 2 when the
-  // clipboard text matches what we already had — confirming same selection.
-  if (delta >= 2 && text === lastCopyText && text !== "") {
-    lastCopyTime = 0;
-    lastCopyText = "";
-    onDoubleCopy(text);
-    return;
-  }
-
-  const now = Date.now();
-  const timeSinceLastCopy = now - lastCopyTime;
-  const sameSelection = text === lastCopyText && text !== "";
-
-  lastCopyTime = now;
-  lastCopyText = text;
-
-  if (
-    timeSinceLastCopy < DOUBLE_COPY_MAX_MS &&
-    timeSinceLastCopy > DOUBLE_COPY_MIN_MS &&
-    sameSelection
-  ) {
-    lastCopyText = "";
-    onDoubleCopy(text);
-  }
-}
-
-// Windows equivalent of NSPasteboard.changeCount. Bound once via FFI —
-// unlike the macOS path below, this is called every 150ms, and spawning
-// a subprocess (e.g. powershell.exe) that often would queue up under its
-// own ~200-400ms startup cost.
-let win32GetClipboardSequenceNumber = null;
-if (process.platform === "win32") {
-  const koffi = require("koffi");
-  const user32 = koffi.load("user32.dll");
-  win32GetClipboardSequenceNumber = user32.func("uint32_t GetClipboardSequenceNumber()");
-}
-
-function getChangeCount() {
-  if (process.platform === "win32") {
-    try {
-      return win32GetClipboardSequenceNumber();
-    } catch {
-      return -1;
-    }
-  }
-
-  try {
-    const { execFileSync } = require("child_process");
-    const out = execFileSync(
-      "osascript",
-      [
-        "-l",
-        "JavaScript",
-        "-e",
-        'ObjC.import("AppKit"); $.NSPasteboard.generalPasteboard.changeCount',
-      ],
-      { encoding: "utf-8", timeout: 2000 }
-    );
-    return parseInt(out.trim(), 10);
-  } catch {
-    return -1;
-  }
-}
-
-function startClipboardWatcher() {
-  if (clipboardPollTimer) return;
-
-  // Poll NSPasteboard changeCount directly from main process.
-  // Each Cmd+C bumps changeCount even if text is identical — that's how
-  // we detect a "double copy" when the user presses Cmd+C twice in a row.
-  lastChangeCount = getChangeCount();
-  clipboardPollTimer = setInterval(() => {
-    const count = getChangeCount();
-    if (count === -1 || count === lastChangeCount) return;
-    const delta = count - lastChangeCount;
-    lastChangeCount = count;
-    handleClipboardChange(delta);
-  }, 150);
-}
-
-function stopClipboardWatcher() {
-  if (clipboardPollTimer) {
-    clearInterval(clipboardPollTimer);
-    clipboardPollTimer = null;
-  }
-}
-
 // Resolve the auth state for the current cloud provider. Catches refresh
 // failures (e.g. OpenAI's refresh_token_reused, network errors) so they
-// don't bubble up as unhandled rejections from the clipboard watcher and
+// don't bubble up as unhandled rejections from the double-copy detector and
 // silently swallow the popup trigger.
 async function resolveAuth() {
   const mode = store.get("translationMode");
@@ -391,6 +275,8 @@ function showPopup(text, targetLangOverride, autoTranslate) {
 // ─── Settings Window ────────────────────────────────────────────────────────
 
 function openSettings() {
+  doubleCopy.syncMode();
+
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.focus();
     return;
@@ -489,7 +375,13 @@ ipcMain.handle("get-settings", () => ({
   enabled: store.get("enabled"),
   translationMode: store.get("translationMode"),
   shortcuts: { ...DEFAULT_SHORTCUTS, ...(store.get("shortcuts") || {}) },
+  accessibility: { trusted: doubleCopy.isAccessibilityTrusted(), mode: doubleCopy.getMode() },
 }));
+
+ipcMain.handle("open-accessibility-settings", () => {
+  doubleCopy.requestAccessibilityAccess();
+  return { success: true };
+});
 
 ipcMain.handle("save-settings", (_event, settings) => {
   if (settings.apiKey !== undefined) store.set("apiKey", settings.apiKey);
@@ -502,7 +394,7 @@ ipcMain.handle("save-settings", (_event, settings) => {
     store.set("translationMode", settings.translationMode);
   if (settings.enabled !== undefined) {
     store.set("enabled", settings.enabled);
-    settings.enabled ? startClipboardWatcher() : stopClipboardWatcher();
+    settings.enabled ? doubleCopy.start(onDoubleCopy) : doubleCopy.stop();
   }
   if (settings.shortcuts !== undefined) {
     const merged = { ...(store.get("shortcuts") || DEFAULT_SHORTCUTS), ...settings.shortcuts };
@@ -567,13 +459,13 @@ ipcMain.handle("download-models", async () => {
 // ─── IPC: Clipboard & Popup ─────────────────────────────────────────────────
 
 ipcMain.handle("copy-to-clipboard", (_event, text) => {
-  markOwnClipboardWrite();
+  doubleCopy.ignoreOwnWrite();
   clipboard.writeText(text);
   return { success: true };
 });
 
 ipcMain.handle("replace-in-app", async (_event, text) => {
-  markOwnClipboardWrite();
+  doubleCopy.ignoreOwnWrite();
   clipboard.writeText(text);
 
   if (popupWindow && !popupWindow.isDestroyed()) {
@@ -665,7 +557,7 @@ app.whenReady().then(async () => {
   createPopupWindow();
 
   if (store.get("enabled")) {
-    startClipboardWatcher();
+    doubleCopy.start(onDoubleCopy);
   }
 
   registerGlobalShortcuts();
@@ -676,6 +568,14 @@ app.whenReady().then(async () => {
       ? !(await getCodexToken())
       : !store.get("apiKey") && !(await getKeychainToken());
     if (needsSetup) openSettings();
+  }
+
+  if (
+    process.platform === "darwin" &&
+    store.get("enabled") &&
+    !doubleCopy.isAccessibilityTrusted()
+  ) {
+    openSettings();
   }
 
   // Pre-warm: load default model pair in local mode (background, non-blocking)
@@ -689,7 +589,7 @@ app.whenReady().then(async () => {
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();
-  stopClipboardWatcher();
+  doubleCopy.stop();
   terminateWorker();
 });
 
