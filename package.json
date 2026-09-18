@@ -14,7 +14,7 @@
     "dist:win": "electron-builder --win portable --x64",
     "build:update:js": "node scripts/build-update.js js",
     "build:update:full": "electron-builder --mac --dir --arm64 && node scripts/build-update.js full",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps && find node_modules -name '._*' -delete"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -42,6 +42,7 @@
       "node_modules/onnxruntime-node/**",
       "models/**"
     ],
+    "afterPack": "./scripts/afterPack.js",
     "mac": {
       "category": "public.app-category.productivity",
       "target": "dir",

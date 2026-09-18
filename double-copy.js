@@ -35,8 +35,16 @@ function requestAccessibilityAccess() {
 let uiohookHandle = null;
 let firstPressAt = 0;
 
+// Returns false if the native module couldn't be loaded/started (e.g. a
+// corrupted build artifact), instead of letting the exception crash the app.
 function startUiohookMode() {
-  const { uIOhook, UiohookKey } = require("uiohook-napi");
+  let uIOhook, UiohookKey;
+  try {
+    ({ uIOhook, UiohookKey } = require("uiohook-napi"));
+  } catch (err) {
+    console.error("[double-copy] failed to load uiohook-napi:", err.message);
+    return false;
+  }
 
   const onKeydown = (e) => {
     const isPlainCopyCombo =
@@ -64,10 +72,17 @@ function startUiohookMode() {
     }
   };
 
-  uIOhook.on("keydown", onKeydown);
-  uIOhook.start();
+  try {
+    uIOhook.on("keydown", onKeydown);
+    uIOhook.start();
+  } catch (err) {
+    console.error("[double-copy] failed to start uiohook-napi:", err.message);
+    return false;
+  }
+
   uiohookHandle = { uIOhook, onKeydown };
   mode = "uiohook";
+  return true;
 }
 
 function stopUiohookMode() {
@@ -167,8 +182,8 @@ function start(callback, key) {
   activeKey = key || "C";
   if (process.platform === "darwin" && !isAccessibilityTrusted()) {
     startPollingMode();
-  } else {
-    startUiohookMode();
+  } else if (!startUiohookMode() && process.platform === "darwin") {
+    startPollingMode();
   }
 }
 
@@ -193,7 +208,7 @@ function syncMode() {
   const trusted = isAccessibilityTrusted();
   if (trusted && mode !== "uiohook") {
     stopPollingMode();
-    startUiohookMode();
+    if (!startUiohookMode()) startPollingMode();
   } else if (!trusted && mode !== "polling") {
     stopUiohookMode();
     startPollingMode();
