@@ -14,7 +14,9 @@ const fs = require("fs");
 const path = require("path");
 
 const RENDER_SIZE = 800; // generous canvas; we crop to content afterwards
-const BUILD_DIR = path.join(__dirname, "..", "build");
+// assets/, not build/ — electron-builder treats the top-level build/ dir as
+// its own build-time resources and never copies it into the packaged app.
+const OUT_DIR = path.join(__dirname, "..", "assets");
 
 const HTML = `
 <!doctype html><html><head><meta charset="utf-8"><style>
@@ -58,8 +60,8 @@ app.whenReady().then(async () => {
     height: cropHeight,
   });
 
-  fs.mkdirSync(BUILD_DIR, { recursive: true });
-  const masterPng = path.join(BUILD_DIR, "tray-icon-master.png");
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const masterPng = path.join(OUT_DIR, "tray-icon-master.png");
   fs.writeFileSync(masterPng, image.toPNG());
 
   // Menu bar glyphs render around 18pt tall at @1x; scale width to match
@@ -74,14 +76,14 @@ app.whenReady().then(async () => {
   for (const [name, w, h] of variants) {
     execFileSync(
       "sips",
-      ["-z", String(h), String(w), masterPng, "--out", path.join(BUILD_DIR, name)],
+      ["-z", String(h), String(w), masterPng, "--out", path.join(OUT_DIR, name)],
       { stdio: "ignore" }
     );
   }
 
   fs.rmSync(masterPng);
 
-  console.log(`✓ build/trayTemplate.png + @2x generated (${targetWidth1x}x${targetHeight1x} @1x)`);
+  console.log(`✓ assets/trayTemplate.png + @2x generated (${targetWidth1x}x${targetHeight1x} @1x)`);
   app.quit();
 }).catch((err) => {
   console.error(err);

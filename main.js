@@ -71,9 +71,12 @@ let currentTranslationController = null;
 // ─── Tray Icon ──────────────────────────────────────────────────────────────
 
 function createTrayIcon() {
-  // @2x variant (build/trayTemplate@2x.png) is picked up automatically for
+  // Lives in assets/, not build/ — electron-builder treats the top-level
+  // build/ dir as its own build-time resources (icon.icns, entitlements)
+  // and never copies it into the packaged app's Resources/app.
+  // @2x variant (assets/trayTemplate@2x.png) is picked up automatically for
   // Retina displays. Regenerate both via `npm run tray-icon`.
-  const img = nativeImage.createFromPath(path.join(__dirname, "build", "trayTemplate.png"));
+  const img = nativeImage.createFromPath(path.join(__dirname, "assets", "trayTemplate.png"));
   img.setTemplateImage(true);
   return img;
 }
